@@ -1,0 +1,44 @@
+{
+  "documents": [
+    {
+      "id": "doc-hq-spec-001",
+      "assetGuid": "bldg-hq-8f3a-4c1e-9b2d-ops-hall",
+      "title": "Operations Hall — MEP Specification",
+      "type": "spec",
+      "summary": "Mechanical, electrical, plumbing design spec Rev C.",
+      "url": "/demo/docs/hq-mep-spec.pdf"
+    },
+    {
+      "id": "doc-hq-om-001",
+      "assetGuid": "bldg-hq-8f3a-4c1e-9b2d-ops-hall",
+      "title": "HQ O&M Manual — HVAC",
+      "type": "om",
+      "summary": "Operations and maintenance procedures for rooftop AHUs.",
+      "url": "/demo/docs/hq-hvac-om.pdf"
+    },
+    {
+      "id": "doc-pump-warranty",
+      "assetGuid": "eq-pump-2b7e-8d0c-3f1a-boiler-feed",
+      "title": "Boiler Feed Pump — Warranty",
+      "type": "warranty",
+      "summary": "Manufacturer warranty valid through 2027-06.",
+      "url": "/demo/docs/pump-warranty.pdf"
+    },
+    {
+      "id": "doc-chiller-drawing",
+      "assetGuid": "eq-hvac-3a8f-9c1d-4e2b-chiller-a",
+      "title": "Chiller A — P&ID Drawing",
+      "type": "drawing",
+      "summary": "Piping and instrumentation diagram sheet UTIL-03.",
+      "url": "/demo/docs/chiller-pid.pdf"
+    },
+    {
+      "id": "doc-storm-asbuilt",
+      "assetGuid": "pipe-water-0d5c-6d8a-1b9e-storm",
+      "title": "Storm Drain B — As-built",
+      "type": "drawing",
+      "summary": "Subsurface utility as-built survey 2023.",
+      "url": "/demo/docs/storm-asbuilt.pdf"
+    }
+  ]
+}

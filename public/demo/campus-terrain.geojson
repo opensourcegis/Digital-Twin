@@ -1,0 +1,20 @@
+{
+  "type": "FeatureCollection",
+  "name": "campus-terrain-dtm",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "Campus DTM grid", "resolutionM": 5, "crs": "EPSG:4326" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-122.136, 37.4213],
+          [-122.132, 37.4213],
+          [-122.132, 37.4235],
+          [-122.136, 37.4235],
+          [-122.136, 37.4213]
+        ]]
+      }
+    }
+  ]
+}

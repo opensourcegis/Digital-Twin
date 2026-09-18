@@ -13,6 +13,9 @@ export type LayerId =
   | "buildings"
   | "roads"
   | "pois"
+  | "utilities"
+  | "sensors"
+  | "terrain"
   | "tileset"
   | "robot-path"
   | "poles";

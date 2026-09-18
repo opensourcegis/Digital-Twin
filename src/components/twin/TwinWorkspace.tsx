@@ -23,7 +23,12 @@ import {
   Link2,
   Navigation,
   FlaskConical,
+  Activity,
+  Settings,
+  Plus,
+  Minus,
 } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
@@ -33,15 +38,22 @@ import {
   SANDCASTLE_PRESET_NOTE,
   SANDCASTLE_TEST_TILESET_URL,
 } from "@/lib/sandcastle-preset";
+import { useTwinPlatform } from "@/hooks/useTwinPlatform";
+import { useLayerCatalog } from "@/hooks/useLayerCatalog";
+import { OperationsPanel } from "@/components/twin/OperationsPanel";
+import { WalkthroughControls } from "@/components/twin/WalkthroughControls";
+import { TimeSlider } from "@/components/twin/TimeSlider";
+import { AssetDetailDrawer } from "@/components/twin/AssetDetailDrawer";
 import type {
   ActiveTool,
-  LayerState,
   MeasureResult,
   PlacedPole,
   RobotState,
   TimeOfDay,
   TwinConfig,
 } from "@/lib/types";
+import type { WalkthroughMode } from "@/lib/twin/types";
+import { zoomCamera } from "@/lib/twin/camera-controls";
 
 const CesiumViewer = dynamic(
   () =>
@@ -61,51 +73,6 @@ const CesiumViewer = dynamic(
   }
 );
 
-const DEFAULT_LAYERS: LayerState[] = [
-  {
-    id: "buildings",
-    label: "Campus buildings",
-    description: "Extruded demo mesh",
-    visible: true,
-    kind: "vector",
-  },
-  {
-    id: "roads",
-    label: "Service roads",
-    description: "Vector centerlines",
-    visible: true,
-    kind: "vector",
-  },
-  {
-    id: "pois",
-    label: "Site POIs",
-    description: "Gates, docks, sensors",
-    visible: true,
-    kind: "vector",
-  },
-  {
-    id: "poles",
-    label: "Electric / lighting poles",
-    description: "Placed infrastructure",
-    visible: true,
-    kind: "infra",
-  },
-  {
-    id: "robot-path",
-    label: "Robot patrol",
-    description: "ATLAS-01 path + body",
-    visible: true,
-    kind: "sim",
-  },
-  {
-    id: "tileset",
-    label: "External 3D Tiles",
-    description: "URL or Cesium ion",
-    visible: true,
-    kind: "tiles",
-  },
-];
-
 export function TwinWorkspace() {
   const [config, setConfig] = useState<TwinConfig>({
     cesiumIonToken: null,
@@ -116,7 +83,7 @@ export function TwinWorkspace() {
     sandcastleTilesetUrl: SANDCASTLE_TEST_TILESET_URL,
   });
   const [tool, setTool] = useState<ActiveTool>("navigate");
-  const [layers, setLayers] = useState(DEFAULT_LAYERS);
+  const layerCatalog = useLayerCatalog();
   const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>("day");
   const [poles, setPoles] = useState<PlacedPole[]>([]);
   const [poleHistory, setPoleHistory] = useState<PlacedPole[][]>([]);
@@ -132,7 +99,9 @@ export function TwinWorkspace() {
     progress: 0,
     speed: 1,
   });
-  const [panel, setPanel] = useState<"layers" | "sim" | "connect">("layers");
+  const [panel, setPanel] = useState<"layers" | "sim" | "ops" | "connect">("ops");
+
+  const twin = useTwinPlatform(robot.progress);
 
   useEffect(() => {
     fetch("/api/config")
@@ -192,11 +161,34 @@ export function TwinWorkspace() {
     });
   };
 
-  const toggleLayer = (id: string) => {
-    setLayers((ls) =>
-      ls.map((l) => (l.id === id ? { ...l, visible: !l.visible } : l))
-    );
+  const toggleLayer = (configId: string) => {
+    const layer = layerCatalog.layers.find((l) => l.configId === configId);
+    if (!layer) return;
+    const nextVisible = !layer.visible;
+    layerCatalog.patchLayer(configId, { visible: nextVisible });
+    void fetch(`/api/layers/${configId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ visible: nextVisible }),
+    }).catch(() => {
+      layerCatalog.patchLayer(configId, { visible: layer.visible });
+      setStatus("Layer toggle failed");
+    });
   };
+
+  const handleWalkthroughChange = useCallback(
+    (mode: WalkthroughMode) => {
+      twin.setWalkthroughMode(mode);
+      if (mode === "walk") {
+        setRobot((r) => (r.playing ? { ...r, playing: false } : r));
+      }
+    },
+    [twin]
+  );
+
+  const handleWalkActive = useCallback(() => {
+    setRobot((r) => (r.playing ? { ...r, playing: false } : r));
+  }, []);
 
   const tools = useMemo(
     () =>
@@ -220,18 +212,28 @@ export function TwinWorkspace() {
       <CesiumViewer
         config={config}
         tool={tool}
-        layers={layers}
+        layers={layerCatalog.layers}
         timeOfDay={timeOfDay}
         poles={poles}
         poleLightsOn={poleLightsOn}
         robot={robot}
         tilesetUrl={tilesetUrl}
+        symbology={twin.symbology}
+        walkthroughMode={twin.walkthroughMode}
+        alerts={twin.alerts}
         onMeasure={setMeasure}
         onPolesChange={updatePoles}
         onRobotProgress={(progress) =>
           setRobot((r) => ({ ...r, progress }))
         }
         onStatus={setStatus}
+        onAssetSelect={twin.selectAsset}
+        onWalkActive={handleWalkActive}
+      />
+
+      <AssetDetailDrawer
+        assetGuid={twin.selectedAssetGuid}
+        onClose={() => twin.selectAsset(null)}
       />
 
       {/* Top brand bar */}
@@ -254,6 +256,12 @@ export function TwinWorkspace() {
 
         <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-2">
           <div className="flex items-center gap-1 rounded-2xl border border-white/10 bg-[#0b1220]/75 p-1 shadow-2xl backdrop-blur-xl">
+            <Button asChild size="sm" variant="ghost">
+              <Link href="/admin" title="Layer admin">
+                <Settings className="h-4 w-4" />
+                Admin
+              </Link>
+            </Button>
             <Button
               size="sm"
               variant={timeOfDay === "day" ? "default" : "ghost"}
@@ -271,6 +279,24 @@ export function TwinWorkspace() {
             >
               <Moon className="h-4 w-4" />
               Night
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => zoomCamera("out")}
+              aria-label="Zoom out"
+              title="Zoom out"
+            >
+              <Minus className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => zoomCamera("in")}
+              aria-label="Zoom in"
+              title="Zoom in"
+            >
+              <Plus className="h-4 w-4" />
             </Button>
           </div>
 
@@ -375,6 +401,7 @@ export function TwinWorkspace() {
           <div className="flex border-b border-white/10 p-1">
             {(
               [
+                ["ops", "COP", Activity],
                 ["layers", "Layers", Layers],
                 ["sim", "Robot", Bot],
                 ["connect", "Tiles", Link2],
@@ -399,28 +426,60 @@ export function TwinWorkspace() {
 
           <ScrollArea className="h-[min(42vh,22rem)]">
             <div className="space-y-3 p-3">
+              {panel === "ops" && (
+                <OperationsPanel
+                  readings={twin.readings}
+                  alerts={twin.alerts}
+                  bms={twin.bms}
+                  symbology={twin.symbology}
+                  connected={twin.connected}
+                  robotBattery={twin.robotTelemetry?.batteryPct}
+                  robotAlerts={twin.robotTelemetry?.activeAlerts}
+                  onAcknowledge={twin.acknowledgeAlert}
+                  onSelectAsset={twin.selectAsset}
+                />
+              )}
+
               {panel === "layers" &&
-                layers.map((layer) => (
-                  <div
-                    key={layer.id}
-                    className="flex items-start justify-between gap-3 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2.5"
-                  >
-                    <div>
-                      <p className="text-sm text-slate-100">{layer.label}</p>
-                      <p className="text-xs text-slate-500">
-                        {layer.description}
-                      </p>
+                (layerCatalog.loading ? (
+                  <p className="px-2 text-xs text-slate-500">Loading layers…</p>
+                ) : layerCatalog.error ? (
+                  <p className="px-2 text-xs text-red-400">{layerCatalog.error}</p>
+                ) : layerCatalog.layers.length === 0 ? (
+                  <p className="px-2 text-xs text-slate-500">
+                    No layers — configure in{" "}
+                    <Link href="/admin" className="text-teal-300 underline">
+                      admin
+                    </Link>
+                  </p>
+                ) : (
+                  layerCatalog.layers.map((layer) => (
+                    <div
+                      key={layer.configId}
+                      className="flex items-start justify-between gap-3 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2.5"
+                    >
+                      <div>
+                        <p className="text-sm text-slate-100">{layer.label}</p>
+                        <p className="text-xs text-slate-500">
+                          {layer.description} · z{layer.zOrder}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={layer.visible}
+                        onCheckedChange={() => toggleLayer(layer.configId)}
+                        aria-label={`Toggle ${layer.label}`}
+                      />
                     </div>
-                    <Switch
-                      checked={layer.visible}
-                      onCheckedChange={() => toggleLayer(layer.id)}
-                      aria-label={`Toggle ${layer.label}`}
-                    />
-                  </div>
+                  ))
                 ))}
 
               {panel === "sim" && (
                 <>
+                  <WalkthroughControls
+                    mode={twin.walkthroughMode}
+                    onChange={handleWalkthroughChange}
+                    robotPlaying={robot.playing}
+                  />
                   <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3">
                     <div className="flex items-center gap-2">
                       <MapPin className="h-4 w-4 text-amber-300" />
@@ -429,7 +488,8 @@ export function TwinWorkspace() {
                       </p>
                     </div>
                     <p className="mt-1 text-xs text-slate-400">
-                      Ground robot follows the demo path over the campus twin.
+                      Patrol tied to live telemetry — slows near critical alerts.
+                      Battery {twin.robotTelemetry?.batteryPct?.toFixed(0) ?? "—"}%.
                     </p>
                   </div>
                   <div className="flex gap-2">
@@ -437,7 +497,16 @@ export function TwinWorkspace() {
                       className="flex-1"
                       variant={robot.playing ? "secondary" : "default"}
                       onClick={() =>
-                        setRobot((r) => ({ ...r, playing: !r.playing }))
+                        setRobot((r) => ({
+                          ...r,
+                          playing: !r.playing,
+                          speed:
+                            twin.alerts.some(
+                              (a) => a.severity === "critical" && !a.acknowledged
+                            ) && !r.playing
+                              ? 0.5
+                              : r.speed,
+                        }))
                       }
                     >
                       {robot.playing ? (
@@ -575,19 +644,28 @@ export function TwinWorkspace() {
 
       {/* Status bar */}
       <footer className="absolute inset-x-0 bottom-0 z-20 p-3 md:p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/10 bg-[#0b1220]/78 px-3 py-2 text-xs text-slate-400 shadow-2xl backdrop-blur-xl">
-          <span className="truncate">{status}</span>
-          <span className="flex items-center gap-3">
-            <span>
-              {timeOfDay === "day" ? "Daylight" : "Night"} · lights{" "}
-              {poleLightsOn ? "on" : "off"}
+        <div className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-[#0b1220]/78 px-3 py-2 shadow-2xl backdrop-blur-xl">
+          <TimeSlider
+            isLive={twin.isLive}
+            simulationTime={twin.simulationTime}
+            onChange={twin.setSimulationTime}
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+            <span className="truncate">{status}</span>
+            <span className="flex items-center gap-3">
+              <span>
+                {timeOfDay === "day" ? "Daylight" : "Night"} · lights{" "}
+                {poleLightsOn ? "on" : "off"}
+              </span>
+              <span className="hidden sm:inline">
+                {twin.alerts.filter((a) => a.severity === "critical").length > 0
+                  ? `${twin.alerts.filter((a) => a.severity === "critical").length} critical alerts`
+                  : activeScene === "sandcastle"
+                    ? "Sandcastle sample tiles"
+                    : "Campus twin · live telemetry"}
+              </span>
             </span>
-            <span className="hidden sm:inline">
-              {activeScene === "sandcastle"
-                ? "Sandcastle sample tiles"
-                : "Campus demo · no ion required"}
-            </span>
-          </span>
+          </div>
         </div>
       </footer>
     </div>

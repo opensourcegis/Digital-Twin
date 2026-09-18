@@ -1,0 +1,117 @@
+{
+  "site": {
+    "guid": "site-001-c4e8-4a2b-9f1d-campus-twin",
+    "name": "TwinBench Campus",
+    "coordinateSystem": "EPSG:4326",
+    "origin": { "lon": -122.1339, "lat": 37.42205, "crs": "WGS84" },
+    "extentM": { "width": 420, "depth": 380 }
+  },
+  "assets": [
+    {
+      "guid": "bldg-hq-8f3a-4c1e-9b2d-ops-hall",
+      "name": "Operations Hall",
+      "type": "building",
+      "parentGuid": "site-001-c4e8-4a2b-9f1d-campus-twin",
+      "buildingCode": "HQ",
+      "lon": -122.1342,
+      "lat": 37.4229,
+      "height": 42,
+      "coordinateSystem": "EPSG:4326",
+      "dimensions": { "widthM": 106, "depthM": 67, "heightM": 42 },
+      "metadata": { "use": "office", "floors": 3, "yearBuilt": 2018, "grossAreaM2": 7100 }
+    },
+    {
+      "guid": "bldg-lab-7e2b-3d0f-8a1c-robotics",
+      "name": "Robotics Lab",
+      "type": "building",
+      "parentGuid": "site-001-c4e8-4a2b-9f1d-campus-twin",
+      "buildingCode": "LAB",
+      "lon": -122.13295,
+      "lat": 37.4228,
+      "height": 28,
+      "coordinateSystem": "EPSG:4326",
+      "dimensions": { "widthM": 84, "depthM": 67, "heightM": 28 },
+      "metadata": { "use": "lab", "floors": 2, "yearBuilt": 2020 }
+    },
+    {
+      "guid": "bldg-wh1-6d1a-2c9e-7b0f-north-wh",
+      "name": "North Warehouse",
+      "type": "building",
+      "parentGuid": "site-001-c4e8-4a2b-9f1d-campus-twin",
+      "buildingCode": "WH1",
+      "lon": -122.1346,
+      "lat": 37.4219,
+      "height": 18,
+      "coordinateSystem": "EPSG:4326",
+      "dimensions": { "widthM": 106, "depthM": 67, "heightM": 18 },
+      "metadata": { "use": "warehouse", "yearBuilt": 2015 }
+    },
+    {
+      "guid": "bldg-util-5c0b-1b8d-6a9e-energy",
+      "name": "Energy Plant",
+      "type": "building",
+      "parentGuid": "site-001-c4e8-4a2b-9f1d-campus-twin",
+      "buildingCode": "UTIL",
+      "lon": -122.1353,
+      "lat": 37.42265,
+      "height": 22,
+      "coordinateSystem": "EPSG:4326",
+      "dimensions": { "widthM": 53, "depthM": 56, "heightM": 22 },
+      "metadata": { "use": "utility", "yearBuilt": 2016 }
+    },
+    {
+      "guid": "flr-hq-1-4b9c-0a7e-5d8f-ground",
+      "name": "HQ Ground Floor",
+      "type": "floor",
+      "parentGuid": "bldg-hq-8f3a-4c1e-9b2d-ops-hall",
+      "coordinateSystem": "EPSG:4326",
+      "metadata": { "level": 0, "elevationM": 0 }
+    },
+    {
+      "guid": "eq-hvac-3a8f-9c1d-4e2b-chiller-a",
+      "name": "Chiller Unit A",
+      "type": "equipment",
+      "parentGuid": "bldg-util-5c0b-1b8d-6a9e-energy",
+      "lon": -122.1354,
+      "lat": 37.4227,
+      "height": 3,
+      "coordinateSystem": "EPSG:4326",
+      "metadata": { "manufacturer": "Carrier", "capacityKW": 450, "assetAgeYears": 8 }
+    },
+    {
+      "guid": "eq-pump-2b7e-8d0c-3f1a-boiler-feed",
+      "name": "Boiler Feed Pump",
+      "type": "equipment",
+      "parentGuid": "bldg-util-5c0b-1b8d-6a9e-energy",
+      "lon": -122.1352,
+      "lat": 37.4226,
+      "height": 2,
+      "coordinateSystem": "EPSG:4326",
+      "metadata": { "flowRateLpm": 1200, "assetAgeYears": 6 }
+    },
+    {
+      "guid": "pipe-steam-1c6d-7e9b-2a0f-main",
+      "name": "Main Steam Line",
+      "type": "pipe",
+      "parentGuid": "bldg-util-5c0b-1b8d-6a9e-energy",
+      "coordinateSystem": "EPSG:4326",
+      "metadata": { "diameterMm": 150, "material": "steel", "pressureBar": 8.5, "subsurface": true }
+    },
+    {
+      "guid": "pipe-water-0d5c-6d8a-1b9e-storm",
+      "name": "Storm Drain Segment B",
+      "type": "pipe",
+      "parentGuid": "site-001-c4e8-4a2b-9f1d-campus-twin",
+      "coordinateSystem": "EPSG:4326",
+      "metadata": { "diameterMm": 600, "subsurface": true, "depthM": 2.4 }
+    },
+    {
+      "guid": "robot-atlas-01-9f0e-5c7d-3b2a",
+      "name": "ATLAS-01 Ground Robot",
+      "type": "robot",
+      "parentGuid": "site-001-c4e8-4a2b-9f1d-campus-twin",
+      "coordinateSystem": "EPSG:4326",
+      "metadata": { "model": "ATLAS-G1", "payloadKg": 15 }
+    }
+  ]
+}

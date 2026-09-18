@@ -1,8 +1,20 @@
 # TwinBench — Digital Twin Workbench
 
-Self-hosted Cesium digital twin platform: visualize 3D Tiles / campus meshes, run lightweight analysis, place electric lighting poles, switch day/night lighting, and simulate a ground robot — no cloud lock-in.
+Self-hosted Cesium digital twin platform with georeferenced campus model, live IoT telemetry, CMMS/BMS integration, time-series history, threshold alerts, and a **3D robot walkthrough** tied to operational data — no cloud lock-in.
 
-Inspired by concepts from [GeoSolutions digital-twin-toolbox](https://github.com/geosolutions-it/digital-twin-toolbox) (tile layers / twin workflows). This app is a separate MIT-friendly product focused on the **viewer + analysis + simulation** slice, not the GPL tile-generation pipeline.
+**Upstream:** [opensourcegis/Digital-Twin](https://github.com/opensourcegis/Digital-Twin) · **Origin workspace:** `anbumanib/genesis`
+
+Inspired by concepts from [GeoSolutions digital-twin-toolbox](https://github.com/geosolutions-it/digital-twin-toolbox) (tile layers / twin workflows). This app is a separate MIT-friendly product focused on the **viewer + analysis + simulation + operations** slice, not the GPL tile-generation pipeline.
+
+## Platform pillars
+
+| Pillar | What TwinBench ships |
+| --- | --- |
+| **Geometric & spatial baseline** | EPSG:4326 campus with extruded buildings, roads, terrain DTM, subsurface utilities; asset registry with GUIDs on buildings, equipment, pipes, sensors |
+| **Sensor & IoT telemetry** | 7 edge sensors (temp, vibration, pressure, energy, flow, occupancy, water level) via mock MQTT/CoAP/WebSocket/REST; SSE stream at `/api/twin/stream` |
+| **Enterprise integration** | Mock CMMS work orders, BACnet/Modbus BMS points, document registry (specs, O&M, warranties) linked to 3D entities |
+| **Data processing & storage** | In-process time-series ring buffer (24h @ 5min); noise/interpolation/drift/timeout quality flags; Brick/RealEstateCore/DTDL semantic relations |
+| **Visualization & COP** | Color-coded 3D symbology, live gauges, spatial alerts, 24h time slider, first/third-person walkthrough following ATLAS-01 |
 
 ## Quick start (local)
 
@@ -13,7 +25,29 @@ npm run dev
 
 Open [http://127.0.0.1:43145](http://127.0.0.1:43145).
 
-The demo **Campus Twin** loads without Cesium ion credentials (OSM basemap + extruded GeoJSON buildings, roads, POIs, seeded poles, robot path).
+The demo **Campus Twin** loads without Cesium ion credentials (OSM basemap + extruded GeoJSON buildings, roads, POIs, utilities, sensors, seeded poles, robot path).
+
+## 3D walkthrough & robot patrol
+
+1. Open the **Robot** panel → choose **3rd person** or **1st person** walkthrough mode.
+2. Press **Play** — ATLAS-01 patrols the georeferenced path; the camera follows the robot.
+3. Open the **COP** panel to watch live sensor gauges and alerts; buildings/sensors change color when thresholds are exceeded.
+4. Scrub the **time slider** in the footer to replay the last 24 hours of telemetry (click **Go live** to return).
+5. Use **Identify** tool and click a building or sensor to open the asset drawer with CMMS work orders and documents.
+
+Robot patrol is tied to telemetry: speed reduces near critical alerts; battery drains while investigating.
+
+## Layer admin dashboard
+
+Manage spatial layers (terrain, buildings, utilities, sensors, robot routes, alert symbology, custom vectors) with full CRUD:
+
+1. Open [http://127.0.0.1:43145/admin/login](http://127.0.0.1:43145/admin/login)
+2. Sign in with password **`twinbench`** (override via `ADMIN_PASSWORD` env)
+3. Create, edit, delete, reorder layers; set opacity, z-order, styling, GUID bindings, coordinate system
+4. Changes persist to **`data/layers.json`**
+5. Main viewer auto-refreshes layer catalog every 8s; use **Preview globe** for immediate check
+
+Layer types supported: terrain DTM/DEM, 3D tiles, buildings/BIM, subsurface utilities, roads, IoT sensors, robot patrol, alert symbology, custom vector.
 
 ## Controls
 
@@ -25,8 +59,10 @@ The demo **Campus Twin** loads without Cesium ion credentials (OSM basemap + ext
 | **Draw poles** | Tools | Click a polyline, **double-click** to finish — poles spawn along the line |
 | **Undo / Clear** | Tools | Undo last pole edit, or clear all poles |
 | Distance / Area / Height / Identify / Viewshed | Tools | Analysis clicks on the twin |
-| Layers | Right panel | Toggle buildings, roads, POIs, poles, robot, external tiles |
-| Robot | Right panel | Play / pause / reset ATLAS-01 along the demo patrol |
+| Layers | Right panel | Toggle buildings, roads, POIs, utilities, sensors, terrain, poles, robot, external tiles |
+| COP | Right panel | Live telemetry gauges, BMS points, threshold alerts |
+| Robot / Walkthrough | Right panel | Play patrol, 1st/3rd person camera follow |
+| Time slider | Footer | Scrub 24h history or return to live SSE stream |
 | Tiles | Right panel | Paste a `tileset.json` URL |
 | **Sandcastle test** | Tiles panel → **Load sample tiles** | Loads the vendored Cesium Sample 3D Tileset (`/demo/sandcastle-tileset/`) — no ion token. Use **Campus** to return to the demo twin |
 
@@ -61,6 +97,22 @@ docker compose up --build
 App: [http://127.0.0.1:43145](http://127.0.0.1:43145).
 
 Optional: put tiles under `./data/tiles` (mounted read-only) and reference them as `/tiles/.../tileset.json` once you add a static file server or Next rewrite — for MVP, prefer a full URL or ion asset.
+
+## API (mock backends)
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/twin/state` | Snapshot: readings, alerts, BMS, symbology, robot status |
+| `GET /api/twin/stream` | SSE live telemetry feed |
+| `GET /api/assets/[guid]` | Asset + CMMS + docs + semantic relations |
+| `GET /api/cmms/work-orders` | Work orders (filter `?assetGuid=`) |
+| `GET /api/bms` | BACnet/Modbus-style points |
+| `GET /api/alerts` | Active threshold alerts |
+| `GET /api/timeseries?sensorGuid=` | Historical points for charts/slider |
+| `GET /api/layers` | Public layer catalog (sorted by z-order) |
+| `PATCH /api/layers/[id]` | Toggle visibility from viewer panel |
+| `POST /api/admin/session` | Admin login (sets session cookie) |
+| `GET/POST/PATCH /api/admin/layers` | Full layer CRUD + reorder (auth required) |
 
 ## Stack
 

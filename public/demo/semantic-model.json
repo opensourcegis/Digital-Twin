@@ -1,0 +1,17 @@
+{
+  "ontology": "Brick",
+  "relations": [
+    { "subjectGuid": "bldg-hq-8f3a-4c1e-9b2d-ops-hall", "predicate": "isPartOf", "objectGuid": "site-001-c4e8-4a2b-9f1d-campus-twin", "ontology": "Brick" },
+    { "subjectGuid": "flr-hq-1-4b9c-0a7e-5d8f-ground", "predicate": "isPartOf", "objectGuid": "bldg-hq-8f3a-4c1e-9b2d-ops-hall", "ontology": "Brick" },
+    { "subjectGuid": "eq-hvac-3a8f-9c1d-4e2b-chiller-a", "predicate": "isPartOf", "objectGuid": "bldg-util-5c0b-1b8d-6a9e-energy", "ontology": "Brick" },
+    { "subjectGuid": "eq-pump-2b7e-8d0c-3f1a-boiler-feed", "predicate": "feeds", "objectGuid": "eq-hvac-3a8f-9c1d-4e2b-chiller-a", "ontology": "Brick" },
+    { "subjectGuid": "pipe-steam-1c6d-7e9b-2a0f-main", "predicate": "feeds", "objectGuid": "bldg-hq-8f3a-4c1e-9b2d-ops-hall", "ontology": "Brick" },
+    { "subjectGuid": "sens-temp-hq-lobby", "predicate": "monitors", "objectGuid": "bldg-hq-8f3a-4c1e-9b2d-ops-hall", "ontology": "RealEstateCore" },
+    { "subjectGuid": "sens-vib-util-pump", "predicate": "monitors", "objectGuid": "eq-pump-2b7e-8d0c-3f1a-boiler-feed", "ontology": "RealEstateCore" },
+    { "subjectGuid": "sens-flow-storm-b", "predicate": "monitors", "objectGuid": "pipe-water-0d5c-6d8a-1b9e-storm", "ontology": "DTDL" },
+    { "subjectGuid": "sens-occ-lab-floor", "predicate": "locatedIn", "objectGuid": "bldg-lab-7e2b-3d0f-8a1c-robotics", "ontology": "RealEstateCore" },
+    { "subjectGuid": "sens-energy-wh1", "predicate": "monitors", "objectGuid": "bldg-wh1-6d1a-2c9e-7b0f-north-wh", "ontology": "Brick" },
+    { "subjectGuid": "sens-pressure-steam", "predicate": "monitors", "objectGuid": "pipe-steam-1c6d-7e9b-2a0f-main", "ontology": "Brick" },
+    { "subjectGuid": "robot-atlas-01-9f0e-5c7d-3b2a", "predicate": "locatedIn", "objectGuid": "site-001-c4e8-4a2b-9f1d-campus-twin", "ontology": "RealEstateCore" }
+  ]
+}

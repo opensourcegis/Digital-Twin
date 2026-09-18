@@ -8,7 +8,7 @@
     "prebuild": "node scripts/copy-cesium.mjs",
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 43145",
-    "lint": "next lint",
+    "lint": "eslint .",
     "copy-cesium": "node scripts/copy-cesium.mjs"
   },
   "dependencies": {

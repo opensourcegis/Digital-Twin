@@ -1,0 +1,63 @@
+{
+  "type": "FeatureCollection",
+  "name": "campus-utilities",
+  "crs": { "type": "name", "properties": { "name": "EPSG:4326" } },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "guid": "pipe-steam-1c6d-7e9b-2a0f-main",
+        "name": "Main Steam Line",
+        "kind": "steam",
+        "diameterMm": 150,
+        "depthM": 1.8,
+        "pressureBar": 8.5
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-122.1354, 37.4227],
+          [-122.1348, 37.42275],
+          [-122.1342, 37.42285],
+          [-122.1336, 37.4229]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "guid": "pipe-water-0d5c-6d8a-1b9e-storm",
+        "name": "Storm Drain B",
+        "kind": "storm",
+        "diameterMm": 600,
+        "depthM": 2.4
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-122.1356, 37.4216],
+          [-122.1345, 37.42165],
+          [-122.1335, 37.42175],
+          [-122.1326, 37.4218]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "guid": "util-elect-feeder-n",
+        "name": "North Electrical Feeder",
+        "kind": "electrical",
+        "voltageKV": 11
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-122.1355, 37.4224],
+          [-122.1346, 37.4222],
+          [-122.1338, 37.4221]
+        ]
+      }
+    }
+  ]
+}

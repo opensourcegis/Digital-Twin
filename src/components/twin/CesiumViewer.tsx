@@ -3,14 +3,37 @@
 import { useEffect, useRef, useCallback } from "react";
 import type {
   ActiveTool,
-  LayerState,
   MeasureResult,
   PlacedPole,
   RobotState,
   TimeOfDay,
   TwinConfig,
 } from "@/lib/types";
+import type { ViewerLayer } from "@/hooks/useLayerCatalog";
 import { formatMeters, formatSquareMeters } from "@/lib/utils";
+import { resolveAssetGuid } from "@/lib/twin/asset-map";
+import {
+  applyBuildingSymbology,
+  applyLayerOpacity,
+  applySensorSymbology,
+  loadCustomGeoJsonLayer,
+  loadTwinLayers,
+  updateWalkthroughCamera,
+} from "@/lib/twin/cesium-layers";
+import {
+  attachKeyboardWalk,
+  enterWalkCamera,
+} from "@/lib/twin/keyboard-walk";
+import {
+  attachCameraControls,
+  isUserControllingCamera,
+} from "@/lib/twin/camera-controls";
+import {
+  layerRenderStateChanged,
+  toLayerRenderState,
+  type LayerRenderState,
+} from "@/lib/twin/layer-viewer-state";
+import type { Alert, WalkthroughMode } from "@/lib/twin/types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type CesiumNS = any;
@@ -18,16 +41,21 @@ type CesiumNS = any;
 interface ViewerProps {
   config: TwinConfig;
   tool: ActiveTool;
-  layers: LayerState[];
+  layers: ViewerLayer[];
   timeOfDay: TimeOfDay;
   poles: PlacedPole[];
   poleLightsOn: boolean;
   robot: RobotState;
   tilesetUrl: string;
+  symbology?: Record<string, { color: string; pulse: boolean }>;
+  walkthroughMode?: WalkthroughMode;
+  alerts?: Alert[];
   onMeasure: (result: MeasureResult | null) => void;
   onPolesChange: (poles: PlacedPole[]) => void;
   onRobotProgress: (progress: number) => void;
   onStatus: (status: string) => void;
+  onAssetSelect?: (guid: string | null) => void;
+  onWalkActive?: () => void;
 }
 
 const CAMPUS = { lon: -122.1339, lat: 37.42205, height: 280 };
@@ -83,10 +111,15 @@ export function CesiumViewer({
   poleLightsOn,
   robot,
   tilesetUrl,
+  symbology = {},
+  walkthroughMode = "off",
+  alerts = [],
   onMeasure,
   onPolesChange,
   onRobotProgress,
   onStatus,
+  onAssetSelect,
+  onWalkActive,
 }: ViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cesiumRef = useRef<CesiumNS | null>(null);
@@ -109,7 +142,18 @@ export function CesiumViewer({
   const onPolesChangeRef = useRef(onPolesChange);
   const onMeasureRef = useRef(onMeasure);
   const onStatusRef = useRef(onStatus);
+  const onAssetSelectRef = useRef(onAssetSelect);
+  const onWalkActiveRef = useRef(onWalkActive);
+  const walkthroughRef = useRef(walkthroughMode);
+  const symbologyRef = useRef(symbology);
+  const alertEntities = useRef<any[]>([]);
+  const customLayerEntities = useRef<Map<string, any[]>>(new Map());
+  const layersRef = useRef(layers);
   const readyRef = useRef(false);
+  const detachKeyboardWalkRef = useRef<(() => void) | null>(null);
+  const detachCameraControlsRef = useRef<(() => void) | null>(null);
+  const layerRenderStateRef = useRef<Map<string, LayerRenderState>>(new Map());
+  const customLayersLoadedRef = useRef<Set<string>>(new Set());
 
   polesRef.current = poles;
   toolRef.current = tool;
@@ -117,6 +161,11 @@ export function CesiumViewer({
   onPolesChangeRef.current = onPolesChange;
   onMeasureRef.current = onMeasure;
   onStatusRef.current = onStatus;
+  onAssetSelectRef.current = onAssetSelect;
+  onWalkActiveRef.current = onWalkActive;
+  walkthroughRef.current = walkthroughMode;
+  symbologyRef.current = symbology;
+  layersRef.current = layers;
 
   const clearMeasureGraphics = useCallback(() => {
     const viewer = viewerRef.current;
@@ -476,6 +525,16 @@ export function CesiumViewer({
         );
       }
       layerEntities.current.pois = poiEntities;
+
+      try {
+        const sensorData = await (await fetch("/demo/sensors.json")).json();
+        const twin = await loadTwinLayers(Cesium, viewer, sensorData.sensors);
+        layerEntities.current.utilities = twin.utilityEntities;
+        layerEntities.current.terrain = twin.terrainEntities;
+        layerEntities.current.sensors = twin.sensorEntities;
+      } catch {
+        onStatusRef.current("Extended twin layers partially loaded");
+      }
     }
 
     async function boot() {
@@ -742,14 +801,18 @@ export function CesiumViewer({
             const name = ent.name || ent.id;
             const props = ent.properties;
             let detail = "";
+            let guid: string | null = null;
             if (props) {
               const keys = props.propertyNames || [];
+              const raw: Record<string, unknown> = {};
               detail = keys
-                .map(
-                  (k: string) =>
-                    `${k}: ${props[k]?.getValue?.() ?? props[k]}`
-                )
+                .map((k: string) => {
+                  const v = props[k]?.getValue?.() ?? props[k];
+                  raw[k] = v;
+                  return `${k}: ${v}`;
+                })
                 .join(" · ");
+              guid = resolveAssetGuid(raw) ?? resolveAssetGuid({ guid: raw.guid as string });
             }
             onMeasureRef.current({
               kind: "identify",
@@ -757,14 +820,16 @@ export function CesiumViewer({
               value: String(name),
               detail: detail || "Entity",
             });
+            if (guid) onAssetSelectRef.current?.(guid);
             viewer.selectedEntity = ent;
           } else {
             onMeasureRef.current({
               kind: "identify",
               label: "Identify",
               value: "No feature",
-              detail: "Click a building, road, POI, or pole",
+              detail: "Click a building, sensor, utility, or pole",
             });
+            onAssetSelectRef.current?.(null);
           }
           return;
         }
@@ -895,6 +960,13 @@ export function CesiumViewer({
       }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
 
       readyRef.current = true;
+      detachCameraControlsRef.current = attachCameraControls(viewer, Cesium);
+      detachKeyboardWalkRef.current = attachKeyboardWalk(
+        viewer,
+        Cesium,
+        () => walkthroughRef.current,
+        () => onWalkActiveRef.current?.()
+      );
       onStatusRef.current("Campus twin ready");
       viewer.scene.requestRender();
     }
@@ -906,6 +978,10 @@ export function CesiumViewer({
 
     return () => {
       destroyed = true;
+      detachKeyboardWalkRef.current?.();
+      detachKeyboardWalkRef.current = null;
+      detachCameraControlsRef.current?.();
+      detachCameraControlsRef.current = null;
       if (animFrame.current) cancelAnimationFrame(animFrame.current);
       handlerRef.current?.destroy();
       viewerRef.current?.destroy();
@@ -929,19 +1005,43 @@ export function CesiumViewer({
 
   useEffect(() => {
     const viewer = viewerRef.current;
-    if (!viewer) return;
+    const Cesium = cesiumRef.current;
+    if (!viewer || !Cesium || !readyRef.current) return;
+
+    let needsRender = false;
+
     for (const layer of layers) {
-      const ents = layerEntities.current[layer.id];
-      if (ents) for (const e of ents) e.show = layer.visible;
-      if (layer.id === "tileset" && tilesetRef.current) {
-        tilesetRef.current.show = layer.visible;
+      const prev = layerRenderStateRef.current.get(layer.configId);
+      const next = toLayerRenderState(layer);
+      const delta = layerRenderStateChanged(prev, next);
+      layerRenderStateRef.current.set(layer.configId, next);
+
+      const bucket = layer.builtInKey ?? layer.key;
+      const ents =
+        layerEntities.current[bucket] ??
+        customLayerEntities.current.get(layer.configId);
+
+      if (ents && (delta.visibility || delta.opacity)) {
+        if (delta.visibility) {
+          for (const e of ents) e.show = layer.visible;
+        }
+        if (delta.opacity && layer.visible) {
+          applyLayerOpacity(Cesium, ents, layer.opacity);
+        }
+        needsRender = true;
       }
-      if (layer.id === "robot-path") {
+
+      if (layer.builtInKey === "tileset" && tilesetRef.current && delta.visibility) {
+        tilesetRef.current.show = layer.visible;
+        needsRender = true;
+      }
+      if (layer.builtInKey === "robot-path" && delta.visibility) {
         const line = viewer.entities.getById("robot-path-line");
         if (line) line.show = layer.visible;
         if (robotEntity.current) robotEntity.current.show = layer.visible;
+        needsRender = true;
       }
-      if (layer.id === "poles") {
+      if (layer.builtInKey === "poles" && delta.visibility) {
         for (const e of poleEntities.current.values()) e.show = layer.visible;
         for (const pole of polesRef.current) {
           const lamp = viewer.entities.getById(`${pole.id}-lamp`);
@@ -949,9 +1049,80 @@ export function CesiumViewer({
           const halo = viewer.entities.getById(`${pole.id}-halo`);
           if (halo) halo.show = layer.visible && poleLightsRef.current;
         }
+        needsRender = true;
+      }
+      if (layer.builtInKey === "alerts" && delta.visibility) {
+        for (const e of alertEntities.current) e.show = layer.visible;
+        needsRender = true;
       }
     }
-    viewer.scene.requestRender();
+
+    if (needsRender) viewer.scene.requestRender();
+  }, [layers, poles, poleLightsOn]);
+
+  useEffect(() => {
+    const Cesium = cesiumRef.current;
+    const viewer = viewerRef.current;
+    if (!Cesium || !viewer || !readyRef.current) return;
+
+    let cancelled = false;
+    let needsRender = false;
+
+    async function syncCustom() {
+      for (const layer of layers) {
+        if (layer.builtInKey) continue;
+        if (!layer.dataSource || !layer.dataSource.endsWith(".geojson")) continue;
+
+        const prev = layerRenderStateRef.current.get(layer.configId);
+        const next = toLayerRenderState(layer);
+        const delta = layerRenderStateChanged(prev, next);
+
+        const existing = customLayerEntities.current.get(layer.configId) ?? [];
+
+        if (delta.reload || (existing.length === 0 && layer.enabled)) {
+          for (const e of existing) viewer.entities.remove(e);
+          customLayerEntities.current.set(layer.configId, []);
+          if (!layer.enabled) {
+            customLayersLoadedRef.current.delete(layer.configId);
+            continue;
+          }
+          try {
+            const ents = await loadCustomGeoJsonLayer(
+              Cesium,
+              viewer,
+              layer.dataSource,
+              layer.style,
+              layer.opacity
+            );
+            if (cancelled) return;
+            for (const e of ents) e.show = layer.visible;
+            customLayerEntities.current.set(layer.configId, ents);
+            customLayersLoadedRef.current.add(layer.configId);
+            needsRender = true;
+          } catch (err) {
+            console.warn("Custom layer load failed", layer.configId, err);
+          }
+        } else if (!layer.enabled) {
+          for (const e of existing) viewer.entities.remove(e);
+          customLayerEntities.current.set(layer.configId, []);
+          customLayersLoadedRef.current.delete(layer.configId);
+          needsRender = true;
+        } else if (existing.length > 0 && (delta.visibility || delta.opacity)) {
+          if (delta.visibility) {
+            for (const e of existing) e.show = layer.visible;
+          }
+          if (delta.opacity && layer.visible) {
+            applyLayerOpacity(Cesium, existing, layer.opacity);
+          }
+          needsRender = true;
+        }
+      }
+      if (needsRender) viewer.scene.requestRender();
+    }
+    syncCustom();
+    return () => {
+      cancelled = true;
+    };
   }, [layers]);
 
   useEffect(() => {
@@ -1039,6 +1210,16 @@ export function CesiumViewer({
       if (path.length >= 2) {
         const pos = interpolatePath(Cesium, path, robot.progress);
         robotEntity.current.position = new Cesium.ConstantPositionProperty(pos);
+        if (!isUserControllingCamera()) {
+          updateWalkthroughCamera(
+            Cesium,
+            viewer,
+            walkthroughRef.current,
+            pos,
+            path,
+            robot.progress
+          );
+        }
         viewer.scene.requestRender();
       }
       return;
@@ -1055,6 +1236,16 @@ export function CesiumViewer({
       if (robotEntity.current) {
         robotEntity.current.position = new Cesium.ConstantPositionProperty(pos);
       }
+      if (!isUserControllingCamera()) {
+        updateWalkthroughCamera(
+          Cesium,
+          viewer,
+          walkthroughRef.current,
+          pos,
+          robotPath.current,
+          progress
+        );
+      }
       onRobotProgress(progress);
       viewer.scene.requestRender();
       animFrame.current = requestAnimationFrame(tick);
@@ -1065,6 +1256,68 @@ export function CesiumViewer({
       if (animFrame.current) cancelAnimationFrame(animFrame.current);
     };
   }, [robot.playing, robot.speed, robot.progress, onRobotProgress]);
+
+  useEffect(() => {
+    const Cesium = cesiumRef.current;
+    const viewer = viewerRef.current;
+    if (!Cesium || !viewer || !readyRef.current) return;
+    if (walkthroughMode !== "walk") return;
+    enterWalkCamera(Cesium, viewer);
+    onStatusRef.current(
+      "Walk mode — WASD or arrow keys to move, mouse to look"
+    );
+  }, [walkthroughMode]);
+
+  useEffect(() => {
+    const Cesium = cesiumRef.current;
+    const viewer = viewerRef.current;
+    if (!Cesium || !viewer || !readyRef.current) return;
+    applyBuildingSymbology(
+      Cesium,
+      layerEntities.current.buildings ?? [],
+      symbology
+    );
+    applySensorSymbology(
+      Cesium,
+      layerEntities.current.sensors ?? [],
+      symbology
+    );
+    viewer.scene.requestRender();
+  }, [symbology]);
+
+  useEffect(() => {
+    const Cesium = cesiumRef.current;
+    const viewer = viewerRef.current;
+    if (!Cesium || !viewer || !readyRef.current) return;
+    const alertsLayer = layersRef.current.find((l) => l.builtInKey === "alerts");
+    const showAlerts = alertsLayer ? alertsLayer.visible : true;
+    for (const e of alertEntities.current) viewer.entities.remove(e);
+    alertEntities.current = [];
+    if (showAlerts) {
+      for (const a of alerts.filter((x) => x.spatial && x.lon != null)) {
+        alertEntities.current.push(
+          viewer.entities.add({
+            position: Cesium.Cartesian3.fromDegrees(a.lon!, a.lat!, (a.height ?? 0) + 8),
+            ellipsoid: {
+              radii: new Cesium.Cartesian3(6, 6, 6),
+              material: Cesium.Color.fromCssColorString(
+                a.severity === "critical" ? "#ef4444" : "#fbbf24"
+              ).withAlpha(0.35),
+              outline: true,
+              outlineColor: Cesium.Color.fromCssColorString("#ef4444"),
+            },
+            label: {
+              text: "⚠",
+              font: "16px sans-serif",
+              fillColor: Cesium.Color.WHITE,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            },
+          })
+        );
+      }
+    }
+    viewer.scene.requestRender();
+  }, [alerts]);
 
   useEffect(() => {
     const clear = () => clearMeasureGraphics();

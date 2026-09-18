@@ -1,0 +1,93 @@
+{
+  "sensors": [
+    {
+      "guid": "sens-temp-hq-lobby",
+      "assetGuid": "bldg-hq-8f3a-4c1e-9b2d-ops-hall",
+      "name": "HQ Lobby Temperature",
+      "metric": "temperature",
+      "unit": "°C",
+      "protocol": "mqtt",
+      "topic": "campus/hq/lobby/temp",
+      "thresholds": { "warning": 28, "critical": 32, "direction": "high" },
+      "lon": -122.1342,
+      "lat": 37.42285,
+      "height": 4
+    },
+    {
+      "guid": "sens-vib-util-pump",
+      "assetGuid": "eq-pump-2b7e-8d0c-3f1a-boiler-feed",
+      "name": "Pump Vibration",
+      "metric": "vibration",
+      "unit": "mm/s",
+      "protocol": "coap",
+      "topic": "coap://util/pump/vibration",
+      "thresholds": { "warning": 4.5, "critical": 7.0, "direction": "high" },
+      "lon": -122.1352,
+      "lat": 37.4226,
+      "height": 2.5
+    },
+    {
+      "guid": "sens-pressure-steam",
+      "assetGuid": "pipe-steam-1c6d-7e9b-2a0f-main",
+      "name": "Steam Line Pressure",
+      "metric": "pressure",
+      "unit": "bar",
+      "protocol": "modbus",
+      "thresholds": { "warning": 9.5, "critical": 10.5, "direction": "high" },
+      "lon": -122.1351,
+      "lat": 37.42255,
+      "height": -1.5
+    },
+    {
+      "guid": "sens-energy-wh1",
+      "assetGuid": "bldg-wh1-6d1a-2c9e-7b0f-north-wh",
+      "name": "WH1 Energy Draw",
+      "metric": "energy",
+      "unit": "kW",
+      "protocol": "rest",
+      "thresholds": { "warning": 180, "critical": 220, "direction": "high" },
+      "lon": -122.1346,
+      "lat": 37.4219,
+      "height": 8
+    },
+    {
+      "guid": "sens-flow-storm-b",
+      "assetGuid": "pipe-water-0d5c-6d8a-1b9e-storm",
+      "name": "Storm Drain Flow B",
+      "metric": "flow",
+      "unit": "L/s",
+      "protocol": "websocket",
+      "topic": "ws://campus/utilities/storm/flow-b",
+      "thresholds": { "warning": 85, "critical": 120, "direction": "high" },
+      "lon": -122.1335,
+      "lat": 37.42175,
+      "height": -2.4
+    },
+    {
+      "guid": "sens-occ-lab-floor",
+      "assetGuid": "bldg-lab-7e2b-3d0f-8a1c-robotics",
+      "name": "Lab Occupancy",
+      "metric": "occupancy",
+      "unit": "persons",
+      "protocol": "mqtt",
+      "topic": "campus/lab/occ",
+      "thresholds": { "warning": 45, "critical": 60, "direction": "high" },
+      "lon": -122.13295,
+      "lat": 37.4228,
+      "height": 3
+    },
+    {
+      "guid": "sens-water-grade-a",
+      "assetGuid": "pipe-water-0d5c-6d8a-1b9e-storm",
+      "name": "Grade Water Level A",
+      "metric": "water_level",
+      "unit": "cm",
+      "protocol": "mqtt",
+      "topic": "campus/storm/grade-a",
+      "thresholds": { "warning": 15, "critical": 25, "direction": "high" },
+      "lon": -122.1338,
+      "lat": 37.4217,
+      "height": 0.3
+    }
+  ]
+}

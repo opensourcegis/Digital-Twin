@@ -1,0 +1,52 @@
+{
+  "workOrders": [
+    {
+      "id": "WO-2401-HQ-INSPECT",
+      "assetGuid": "bldg-hq-8f3a-4c1e-9b2d-ops-hall",
+      "title": "Quarterly HVAC inspection — Operations Hall",
+      "description": "Inspect rooftop AHUs, filter change, BACnet trend review.",
+      "status": "open",
+      "priority": "medium",
+      "type": "inspection",
+      "assetAgeYears": 8,
+      "createdAt": "2026-09-10T08:00:00.000Z",
+      "dueDate": "2026-09-25T17:00:00.000Z"
+    },
+    {
+      "id": "WO-2402-UTIL-PUMP",
+      "assetGuid": "eq-pump-2b7e-8d0c-3f1a-boiler-feed",
+      "title": "Pump vibration follow-up",
+      "description": "Vibration trending above baseline — align coupling, check bearings.",
+      "status": "in_progress",
+      "priority": "high",
+      "type": "repair",
+      "assetAgeYears": 6,
+      "createdAt": "2026-09-15T14:30:00.000Z",
+      "dueDate": "2026-09-19T12:00:00.000Z"
+    },
+    {
+      "id": "WO-2403-STORM-CLEAR",
+      "assetGuid": "pipe-water-0d5c-6d8a-1b9e-storm",
+      "title": "Storm drain segment B — debris clearing",
+      "description": "Preventive clear ahead of forecast rain event.",
+      "status": "open",
+      "priority": "high",
+      "type": "preventive",
+      "assetAgeYears": 12,
+      "createdAt": "2026-09-17T09:00:00.000Z",
+      "dueDate": "2026-09-18T18:00:00.000Z"
+    },
+    {
+      "id": "WO-2404-LAB-CAL",
+      "assetGuid": "bldg-lab-7e2b-3d0f-8a1c-robotics",
+      "title": "Occupancy sensor calibration",
+      "description": "Calibrate PIR array on robotics lab floor.",
+      "status": "completed",
+      "priority": "low",
+      "type": "inspection",
+      "assetAgeYears": 4,
+      "createdAt": "2026-09-01T10:00:00.000Z",
+      "dueDate": "2026-09-05T17:00:00.000Z"
+    }
+  ]
+}

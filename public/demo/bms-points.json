@@ -1,0 +1,42 @@
+{
+  "points": [
+    {
+      "guid": "bms-hvac-setpoint-hq",
+      "assetGuid": "bldg-hq-8f3a-4c1e-9b2d-ops-hall",
+      "system": "hvac",
+      "name": "HQ Supply Air Setpoint",
+      "value": 22.5,
+      "unit": "°C",
+      "protocol": "bacnet",
+      "writable": true
+    },
+    {
+      "guid": "bms-hvac-chiller-util",
+      "assetGuid": "eq-hvac-3a8f-9c1d-4e2b-chiller-a",
+      "system": "hvac",
+      "name": "Chiller A Leaving Temp",
+      "value": 6.8,
+      "unit": "°C",
+      "protocol": "bacnet",
+      "writable": false
+    },
+    {
+      "guid": "bms-light-perimeter",
+      "assetGuid": "site-001-c4e8-4a2b-9f1d-campus-twin",
+      "system": "lighting",
+      "name": "Perimeter Lighting Circuit",
+      "value": true,
+      "protocol": "modbus",
+      "writable": true
+    },
+    {
+      "guid": "bms-access-gate-west",
+      "assetGuid": "bldg-wh1-6d1a-2c9e-7b0f-north-wh",
+      "system": "access",
+      "name": "Gate West — mag lock",
+      "value": "secured",
+      "protocol": "bacnet",
+      "writable": true
+    }
+  ]
+}
