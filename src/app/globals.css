@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0b1220;
+  --foreground: #e8eef5;
+  --accent: #2dd4bf;
+  --accent-warm: #f59e0b;
+  --panel: rgba(11, 18, 32, 0.82);
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-sans), "DM Sans", sans-serif;
+}
+
+.font-display {
+  font-family: var(--font-display), Syne, sans-serif;
+}
+
+.twin-atmosphere {
+  background:
+    radial-gradient(ellipse 80% 50% at 20% -10%, rgba(45, 212, 191, 0.12), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 90% 10%, rgba(56, 189, 248, 0.08), transparent 50%),
+    linear-gradient(180deg, rgba(11, 18, 32, 0.15), transparent 35%);
+  animation: atmosphere-drift 18s ease-in-out infinite alternate;
+}
+
+@keyframes atmosphere-drift {
+  from {
+    opacity: 0.85;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 8px, 0);
+  }
+}
+
+.animate-in-fade {
+  animation: fade-up 0.35s ease-out both;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Cesium widget chrome cleanup */
+.cesium-viewer-bottom,
+.cesium-viewer-toolbar,
+.cesium-viewer-animationContainer,
+.cesium-viewer-timelineContainer,
+.cesium-credit-logoContainer,
+.cesium-credit-textContainer {
+  display: none !important;
+}
+
+* {
+  box-sizing: border-box;
+}

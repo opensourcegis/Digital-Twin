@@ -1,0 +1,45 @@
+{
+  "type": "FeatureCollection",
+  "name": "campus-roads",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "id": "R1", "name": "Main Spine", "class": "primary" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-122.1357, 37.4218],
+          [-122.1345, 37.4219],
+          [-122.1335, 37.422],
+          [-122.1324, 37.4221]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": "R2", "name": "Lab Loop", "class": "secondary" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-122.1335, 37.422],
+          [-122.1335, 37.4226],
+          [-122.1328, 37.4228],
+          [-122.1325, 37.4224]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": "R3", "name": "Warehouse Alley", "class": "service" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-122.1348, 37.4219],
+          [-122.1348, 37.4215],
+          [-122.1335, 37.4215],
+          [-122.1335, 37.422]
+        ]
+      }
+    }
+  ]
+}

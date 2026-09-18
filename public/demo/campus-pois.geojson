@@ -1,0 +1,46 @@
+{
+  "type": "FeatureCollection",
+  "name": "campus-pois",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "P1",
+        "name": "Charge Dock A",
+        "kind": "charging",
+        "status": "available"
+      },
+      "geometry": { "type": "Point", "coordinates": [-122.1342, 37.422] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "P2",
+        "name": "Gate West",
+        "kind": "gate",
+        "status": "open"
+      },
+      "geometry": { "type": "Point", "coordinates": [-122.1356, 37.4218] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "P3",
+        "name": "Sensor Mast",
+        "kind": "sensor",
+        "status": "online"
+      },
+      "geometry": { "type": "Point", "coordinates": [-122.1329, 37.4227] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "P4",
+        "name": "Emergency Rally",
+        "kind": "safety",
+        "status": "clear"
+      },
+      "geometry": { "type": "Point", "coordinates": [-122.1339, 37.4217] }
+    }
+  ]
+}

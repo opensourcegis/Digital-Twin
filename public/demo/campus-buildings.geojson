@@ -1,0 +1,132 @@
+{
+  "type": "FeatureCollection",
+  "name": "campus-buildings",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "HQ",
+        "name": "Operations Hall",
+        "height": 42,
+        "use": "office"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-122.1348, 37.4226],
+            [-122.1336, 37.4226],
+            [-122.1336, 37.4232],
+            [-122.1348, 37.4232],
+            [-122.1348, 37.4226]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "LAB",
+        "name": "Robotics Lab",
+        "height": 28,
+        "use": "lab"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-122.1334, 37.4225],
+            [-122.1325, 37.4225],
+            [-122.1325, 37.4231],
+            [-122.1334, 37.4231],
+            [-122.1334, 37.4225]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "WH1",
+        "name": "North Warehouse",
+        "height": 18,
+        "use": "warehouse"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-122.1352, 37.4216],
+            [-122.134, 37.4216],
+            [-122.134, 37.4222],
+            [-122.1352, 37.4222],
+            [-122.1352, 37.4216]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "WH2",
+        "name": "South Warehouse",
+        "height": 16,
+        "use": "warehouse"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-122.1338, 37.4214],
+            [-122.1326, 37.4214],
+            [-122.1326, 37.422],
+            [-122.1338, 37.422],
+            [-122.1338, 37.4214]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "UTIL",
+        "name": "Energy Plant",
+        "height": 22,
+        "use": "utility"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-122.1356, 37.4224],
+            [-122.135, 37.4224],
+            [-122.135, 37.4229],
+            [-122.1356, 37.4229],
+            [-122.1356, 37.4224]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "PAD",
+        "name": "Loading Pad Canopy",
+        "height": 8,
+        "use": "canopy"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-122.1332, 37.4218],
+            [-122.1327, 37.4218],
+            [-122.1327, 37.4222],
+            [-122.1332, 37.4222],
+            [-122.1332, 37.4218]
+          ]
+        ]
+      }
+    }
+  ]
+}
