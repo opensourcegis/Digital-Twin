@@ -950,13 +950,21 @@ export function CesiumViewer({
       }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
 
       readyRef.current = true;
-      detachCameraControlsRef.current = attachCameraControls(viewer, Cesium);
-      detachKeyboardWalkRef.current = attachKeyboardWalk(
-        viewer,
-        Cesium,
-        () => walkthroughRef.current,
-        () => onWalkActiveRef.current?.()
-      );
+      try {
+        detachCameraControlsRef.current = attachCameraControls(viewer, Cesium);
+      } catch (err) {
+        console.warn("Camera controls attach failed", err);
+      }
+      try {
+        detachKeyboardWalkRef.current = attachKeyboardWalk(
+          viewer,
+          Cesium,
+          () => walkthroughRef.current,
+          () => onWalkActiveRef.current?.()
+        );
+      } catch (err) {
+        console.warn("Keyboard walk attach failed", err);
+      }
       onStatusRef.current("Campus twin ready");
       viewer.scene.requestRender();
     }
@@ -1363,12 +1371,19 @@ function interpolatePath(
   path: { lon: number; lat: number; height: number }[],
   t: number
 ) {
+  if (!path || path.length < 2) {
+    return Cesium.Cartesian3.fromDegrees(CAMPUS.lon, CAMPUS.lat, 1.2);
+  }
   const total = path.length - 1;
-  const x = t * total;
+  const clamped = Math.min(Math.max(t, 0), 0.9999);
+  const x = clamped * total;
   const i = Math.min(total - 1, Math.floor(x));
   const local = x - i;
   const a = path[i];
-  const b = path[i + 1];
+  const b = path[i + 1] ?? path[i];
+  if (!a || !b) {
+    return Cesium.Cartesian3.fromDegrees(CAMPUS.lon, CAMPUS.lat, 1.2);
+  }
   const A = Cesium.Cartesian3.fromDegrees(a.lon, a.lat, a.height);
   const B = Cesium.Cartesian3.fromDegrees(b.lon, b.lat, b.height);
   return Cesium.Cartesian3.lerp(A, B, local, new Cesium.Cartesian3());

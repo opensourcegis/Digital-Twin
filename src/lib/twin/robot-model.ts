@@ -8,8 +8,10 @@ export interface AtlasRobotHandle {
   destroy: () => void;
 }
 
+/** Part offset: forward (heading), right, up — meters relative to chassis center. */
 type PartDef = {
   id: string;
+  /** [forward, right, up] in meters */
   local: [number, number, number];
   box?: { x: number; y: number; z: number; color: string; alpha?: number };
   cylinder?: {
@@ -17,121 +19,104 @@ type PartDef = {
     top: number;
     bottom: number;
     color: string;
-    roll?: number;
-    pitch?: number;
+    /** Align axle left-right */
+    asWheel?: boolean;
   };
   ellipsoid?: { r: [number, number, number]; color: string; alpha?: number };
   point?: { size: number; color: string };
 };
 
-/** Industrial AMR patrol unit — composite Cesium entities (no external GLB). */
 const PARTS: PartDef[] = [
   {
     id: "chassis",
-    local: [0, 0, 0.42],
-    box: { x: 1.85, y: 1.05, z: 0.48, color: "#2a3344" },
+    local: [0, 0, 0.45],
+    box: { x: 2.0, y: 1.15, z: 0.5, color: "#334155" },
   },
   {
     id: "deck",
-    local: [0, 0, 0.68],
-    box: { x: 1.55, y: 0.88, z: 0.08, color: "#3d4a5c" },
+    local: [0, 0, 0.72],
+    box: { x: 1.7, y: 0.95, z: 0.1, color: "#475569" },
+  },
+  {
+    id: "stripe",
+    local: [0.15, 0, 0.78],
+    box: { x: 1.2, y: 0.12, z: 0.04, color: "#f59e0b" },
   },
   {
     id: "bumper-f",
-    local: [0.92, 0, 0.28],
-    box: { x: 0.12, y: 0.95, z: 0.22, color: "#f59e0b" },
+    local: [1.05, 0, 0.32],
+    box: { x: 0.14, y: 1.05, z: 0.26, color: "#fbbf24" },
   },
   {
     id: "bumper-r",
-    local: [-0.92, 0, 0.28],
-    box: { x: 0.1, y: 0.9, z: 0.2, color: "#64748b" },
+    local: [-1.05, 0, 0.32],
+    box: { x: 0.12, y: 1.0, z: 0.22, color: "#64748b" },
   },
   {
     id: "wheel-fl",
-    local: [0.55, 0.58, 0.22],
-    cylinder: {
-      length: 0.18,
-      top: 0.22,
-      bottom: 0.22,
-      color: "#111827",
-      roll: Math.PI / 2,
-    },
+    local: [0.62, 0.62, 0.24],
+    cylinder: { length: 0.2, top: 0.24, bottom: 0.24, color: "#0f172a", asWheel: true },
   },
   {
     id: "wheel-fr",
-    local: [0.55, -0.58, 0.22],
-    cylinder: {
-      length: 0.18,
-      top: 0.22,
-      bottom: 0.22,
-      color: "#111827",
-      roll: Math.PI / 2,
-    },
+    local: [0.62, -0.62, 0.24],
+    cylinder: { length: 0.2, top: 0.24, bottom: 0.24, color: "#0f172a", asWheel: true },
   },
   {
     id: "wheel-rl",
-    local: [-0.55, 0.58, 0.22],
-    cylinder: {
-      length: 0.18,
-      top: 0.22,
-      bottom: 0.22,
-      color: "#111827",
-      roll: Math.PI / 2,
-    },
+    local: [-0.62, 0.62, 0.24],
+    cylinder: { length: 0.2, top: 0.24, bottom: 0.24, color: "#0f172a", asWheel: true },
   },
   {
     id: "wheel-rr",
-    local: [-0.55, -0.58, 0.22],
-    cylinder: {
-      length: 0.18,
-      top: 0.22,
-      bottom: 0.22,
-      color: "#111827",
-      roll: Math.PI / 2,
-    },
+    local: [-0.62, -0.62, 0.24],
+    cylinder: { length: 0.2, top: 0.24, bottom: 0.24, color: "#0f172a", asWheel: true },
   },
   {
     id: "mast",
-    local: [-0.15, 0, 1.05],
-    cylinder: {
-      length: 0.85,
-      top: 0.045,
-      bottom: 0.06,
-      color: "#94a3b8",
-    },
+    local: [-0.2, 0, 1.15],
+    cylinder: { length: 0.9, top: 0.05, bottom: 0.07, color: "#94a3b8" },
   },
   {
     id: "lidar",
-    local: [-0.15, 0, 1.52],
-    ellipsoid: { r: [0.22, 0.22, 0.12], color: "#0ea5e9", alpha: 0.92 },
+    local: [-0.2, 0, 1.65],
+    ellipsoid: { r: [0.26, 0.26, 0.14], color: "#0ea5e9", alpha: 0.95 },
   },
   {
     id: "cam-housing",
-    local: [0.35, 0, 0.95],
-    box: { x: 0.28, y: 0.35, z: 0.22, color: "#1e293b" },
+    local: [0.45, 0, 1.0],
+    box: { x: 0.32, y: 0.38, z: 0.24, color: "#1e293b" },
   },
   {
     id: "cam-lens",
-    local: [0.5, 0, 0.95],
-    ellipsoid: { r: [0.06, 0.08, 0.08], color: "#38bdf8", alpha: 0.85 },
+    local: [0.62, 0, 1.0],
+    ellipsoid: { r: [0.07, 0.09, 0.09], color: "#38bdf8", alpha: 0.9 },
   },
   {
     id: "status-led",
-    local: [0.2, 0, 0.78],
-    point: { size: 10, color: "#34d399" },
+    local: [0.25, 0, 0.85],
+    point: { size: 12, color: "#34d399" },
   },
   {
     id: "antenna",
-    local: [-0.55, 0.25, 1.15],
-    cylinder: {
-      length: 0.55,
-      top: 0.012,
-      bottom: 0.02,
-      color: "#cbd5e1",
-    },
+    local: [-0.55, 0.28, 1.25],
+    cylinder: { length: 0.6, top: 0.015, bottom: 0.022, color: "#e2e8f0" },
   },
 ];
 
+function bodyToEnu(
+  forward: number,
+  right: number,
+  up: number,
+  headingRad: number
+): [number, number, number] {
+  // heading 0 = north; +forward along heading, +right to starboard
+  const east = Math.sin(headingRad) * forward + Math.cos(headingRad) * right;
+  const north = Math.cos(headingRad) * forward - Math.sin(headingRad) * right;
+  return [east, north, up];
+}
+
+/** Industrial AMR patrol unit — composite Cesium entities (no external GLB). */
 export function createAtlasRobot(
   Cesium: CesiumNS,
   viewer: any,
@@ -150,16 +135,16 @@ export function createAtlasRobot(
     position: startPos,
     label: {
       text: "ATLAS-01",
-      font: "600 12px DM Sans, sans-serif",
+      font: "600 13px DM Sans, sans-serif",
       fillColor: Cesium.Color.WHITE,
-      outlineColor: Cesium.Color.fromCssColorString("#0b1220"),
+      outlineColor: Cesium.Color.fromCssColorString("#071018"),
       outlineWidth: 4,
       style: Cesium.LabelStyle.FILL_AND_OUTLINE,
       verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-      pixelOffset: new Cesium.Cartesian2(0, -28),
+      pixelOffset: new Cesium.Cartesian2(0, -36),
       disableDepthTestDistance: Number.POSITIVE_INFINITY,
       showBackground: true,
-      backgroundColor: Cesium.Color.fromCssColorString("#0b1220").withAlpha(0.72),
+      backgroundColor: Cesium.Color.fromCssColorString("#071018").withAlpha(0.78),
       backgroundPadding: new Cesium.Cartesian2(8, 5),
     },
     properties: {
@@ -183,7 +168,7 @@ export function createAtlasRobot(
           part.box.alpha ?? 1
         ),
         outline: true,
-        outlineColor: Cesium.Color.fromCssColorString("#0f172a").withAlpha(0.55),
+        outlineColor: Cesium.Color.fromCssColorString("#0f172a").withAlpha(0.6),
       };
     }
     if (part.cylinder) {
@@ -192,7 +177,7 @@ export function createAtlasRobot(
         topRadius: part.cylinder.top,
         bottomRadius: part.cylinder.bottom,
         material: Cesium.Color.fromCssColorString(part.cylinder.color),
-        slices: 16,
+        slices: 18,
       };
     }
     if (part.ellipsoid) {
@@ -219,26 +204,26 @@ export function createAtlasRobot(
 
   const scratchLocal = new Cesium.Cartesian3();
   const scratchWorld = new Cesium.Cartesian3();
-  const scratchHpr = new Cesium.HeadingPitchRoll();
   const scratchMatrix = new Cesium.Matrix4();
   const scratchQuat = new Cesium.Quaternion();
+  const scratchHpr = new Cesium.HeadingPitchRoll();
 
   function update(position: any, headingRad: number) {
-    scratchHpr.heading = headingRad;
-    scratchHpr.pitch = 0;
-    scratchHpr.roll = 0;
-    Cesium.Transforms.headingPitchRollToFixedFrame(
+    Cesium.Transforms.eastNorthUpToFixedFrame(
       position,
-      scratchHpr,
       Cesium.Ellipsoid.WGS84,
-      Cesium.Transforms.localFrameToFixedFrameGenerator("east", "north"),
       scratchMatrix
     );
+
+    // Face along heading (box +X ≈ east in ENU before yaw; yaw so +X follows heading).
+    scratchHpr.heading = headingRad - Cesium.Math.PI_OVER_TWO;
+    scratchHpr.pitch = 0;
+    scratchHpr.roll = 0;
     Cesium.Transforms.headingPitchRollQuaternion(
       position,
       scratchHpr,
       Cesium.Ellipsoid.WGS84,
-      Cesium.Transforms.localFrameToFixedFrameGenerator("east", "north"),
+      Cesium.Transforms.eastNorthUpToFixedFrame,
       scratchQuat
     );
 
@@ -248,25 +233,33 @@ export function createAtlasRobot(
     );
 
     for (const { def, entity } of partEntities) {
-      scratchLocal.x = def.local[0];
-      scratchLocal.y = def.local[1];
-      scratchLocal.z = def.local[2];
+      const [east, north, up] = bodyToEnu(
+        def.local[0],
+        def.local[1],
+        def.local[2],
+        headingRad
+      );
+      scratchLocal.x = east;
+      scratchLocal.y = north;
+      scratchLocal.z = up;
       Cesium.Matrix4.multiplyByPoint(scratchMatrix, scratchLocal, scratchWorld);
       entity.position = new Cesium.ConstantPositionProperty(
         Cesium.Cartesian3.clone(scratchWorld)
       );
 
-      if (def.cylinder?.roll || def.cylinder?.pitch) {
-        const partHpr = new Cesium.HeadingPitchRoll(
+      if (def.cylinder?.asWheel) {
+        // Wheel axle along left-right (perpendicular to heading)
+        const wheelHpr = new Cesium.HeadingPitchRoll(
           headingRad,
-          def.cylinder.pitch ?? 0,
-          def.cylinder.roll ?? 0
+          0,
+          Cesium.Math.PI_OVER_TWO
         );
-        const q = Cesium.Transforms.headingPitchRollQuaternion(
-          scratchWorld,
-          partHpr
+        entity.orientation = new Cesium.ConstantProperty(
+          Cesium.Transforms.headingPitchRollQuaternion(
+            scratchWorld,
+            wheelHpr
+          )
         );
-        entity.orientation = new Cesium.ConstantProperty(q);
       } else {
         entity.orientation = new Cesium.ConstantProperty(
           Cesium.Quaternion.clone(scratchQuat)
@@ -293,12 +286,12 @@ export function pathHeadingRad(
   path: { lon: number; lat: number }[],
   progress: number
 ): number {
-  if (path.length < 2) return 0;
+  if (!path || path.length < 2) return 0;
   const total = path.length - 1;
-  const x = progress * total;
+  const x = Math.min(Math.max(progress, 0), 0.9999) * total;
   const i = Math.min(total - 1, Math.floor(x));
   const a = path[i];
-  const b = path[i + 1] ?? path[0];
-  // Cesium heading: 0 = north, clockwise positive → atan2(east, north)
+  const b = path[i + 1] ?? path[i];
+  if (!a || !b) return 0;
   return Math.atan2(b.lon - a.lon, b.lat - a.lat);
 }

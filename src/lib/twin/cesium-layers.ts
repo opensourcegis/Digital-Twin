@@ -252,27 +252,26 @@ export function updateWalkthroughCamera(
   if (mode === "off" || mode === "walk" || !robotPos || path.length < 2) return;
 
   const total = path.length - 1;
-  const x = progress * total;
+  const x = Math.min(Math.max(progress, 0), 0.9999) * total;
   const i = Math.min(total - 1, Math.floor(x));
   const a = path[i];
-  const b = path[i + 1] ?? path[0];
+  const b = path[i + 1] ?? path[i];
+  if (!a || !b) return;
+
   const heading = Math.atan2(b.lon - a.lon, b.lat - a.lat);
 
-  // Offset in the robot's local ENU frame (meters) — far more reliable than
-  // degree-based lon/lat nudges that broke first/third-person follow.
-  const backM = mode === "first" ? 0.35 : 14;
-  const upM = mode === "first" ? 1.55 : 7.5;
-  const hpr = new Cesium.HeadingPitchRoll(heading, 0, 0);
-  const frame = Cesium.Transforms.headingPitchRollToFixedFrame(
-    robotPos,
-    hpr,
-    Cesium.Ellipsoid.WGS84,
-    Cesium.Transforms.localFrameToFixedFrameGenerator("east", "north")
+  // Offset in east-north-up meters from the robot (stable, no HPR-frame guesswork).
+  const backM = mode === "first" ? 0.45 : 16;
+  const upM = mode === "first" ? 1.55 : 8;
+  const enu = Cesium.Transforms.eastNorthUpToFixedFrame(robotPos);
+  const local = new Cesium.Cartesian3(
+    -Math.sin(heading) * backM,
+    -Math.cos(heading) * backM,
+    upM
   );
-  const localOffset = new Cesium.Cartesian3(-backM, 0, upM);
   const camPos = Cesium.Matrix4.multiplyByPoint(
-    frame,
-    localOffset,
+    enu,
+    local,
     new Cesium.Cartesian3()
   );
 
@@ -280,7 +279,7 @@ export function updateWalkthroughCamera(
     destination: camPos,
     orientation: {
       heading,
-      pitch: Cesium.Math.toRadians(mode === "first" ? -6 : -28),
+      pitch: Cesium.Math.toRadians(mode === "first" ? -8 : -32),
       roll: 0,
     },
   });
