@@ -13,9 +13,9 @@ const syne = Syne({
 });
 
 export const metadata: Metadata = {
-  title: "TwinBench — Digital Twin Workbench",
+  title: "TwinBench — Digital Twin Platform",
   description:
-    "Self-hosted Cesium digital twin platform with analysis tools, lighting poles, and robot simulation.",
+    "Commercial-grade Cesium digital twin: live IoT COP, CMMS/BMS integration, and ATLAS-01 robot walkthrough.",
 };
 
 export default function RootLayout({

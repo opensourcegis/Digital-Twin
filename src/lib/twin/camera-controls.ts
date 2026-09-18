@@ -14,6 +14,11 @@ export function markUserCameraControl(viewer?: any) {
   viewer?.scene?.requestRender?.();
 }
 
+/** Clear manual override so walkthrough / patrol camera can take over again. */
+export function clearUserCameraControl() {
+  userOverrideUntil = 0;
+}
+
 export function attachCameraControls(viewer: any, Cesium: CesiumNS) {
   const scene = viewer.scene;
   const ctrl = scene.screenSpaceCameraController;

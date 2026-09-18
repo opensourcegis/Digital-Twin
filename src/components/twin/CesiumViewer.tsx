@@ -26,6 +26,7 @@ import {
 } from "@/lib/twin/keyboard-walk";
 import {
   attachCameraControls,
+  clearUserCameraControl,
   isUserControllingCamera,
 } from "@/lib/twin/camera-controls";
 import {
@@ -33,6 +34,11 @@ import {
   toLayerRenderState,
   type LayerRenderState,
 } from "@/lib/twin/layer-viewer-state";
+import {
+  createAtlasRobot,
+  pathHeadingRad,
+  type AtlasRobotHandle,
+} from "@/lib/twin/robot-model";
 import type { Alert, WalkthroughMode } from "@/lib/twin/types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -132,7 +138,7 @@ export function CesiumViewer({
   const drawPreview = useRef<any>(null);
   const poleEntities = useRef<Map<string, any>>(new Map());
   const lightHalos = useRef<Map<string, any>>(new Map());
-  const robotEntity = useRef<any>(null);
+  const robotHandle = useRef<AtlasRobotHandle | null>(null);
   const robotPath = useRef<{ lon: number; lat: number; height: number }[]>([]);
   const handlerRef = useRef<any>(null);
   const animFrame = useRef<number | null>(null);
@@ -144,7 +150,11 @@ export function CesiumViewer({
   const onStatusRef = useRef(onStatus);
   const onAssetSelectRef = useRef(onAssetSelect);
   const onWalkActiveRef = useRef(onWalkActive);
+  const onRobotProgressRef = useRef(onRobotProgress);
   const walkthroughRef = useRef(walkthroughMode);
+  const robotPlayingRef = useRef(robot.playing);
+  const robotSpeedRef = useRef(robot.speed);
+  const robotProgressRef = useRef(robot.progress);
   const symbologyRef = useRef(symbology);
   const alertEntities = useRef<any[]>([]);
   const customLayerEntities = useRef<Map<string, any[]>>(new Map());
@@ -163,7 +173,11 @@ export function CesiumViewer({
   onStatusRef.current = onStatus;
   onAssetSelectRef.current = onAssetSelect;
   onWalkActiveRef.current = onWalkActive;
+  onRobotProgressRef.current = onRobotProgress;
   walkthroughRef.current = walkthroughMode;
+  robotPlayingRef.current = robot.playing;
+  robotSpeedRef.current = robot.speed;
+  robotProgressRef.current = robot.progress;
   symbologyRef.current = symbology;
   layersRef.current = layers;
 
@@ -626,31 +640,7 @@ export function CesiumViewer({
           },
         });
         const start = data.waypoints[0];
-        robotEntity.current = viewer.entities.add({
-          id: "robot",
-          position: Cesium.Cartesian3.fromDegrees(
-            start.lon,
-            start.lat,
-            start.height
-          ),
-          box: {
-            dimensions: new Cesium.Cartesian3(2.2, 1.4, 1.0),
-            material: Cesium.Color.fromCssColorString("#fbbf24"),
-            outline: true,
-            outlineColor: Cesium.Color.fromCssColorString("#92400e"),
-          },
-          label: {
-            text: "ATLAS-01",
-            font: "12px DM Sans, sans-serif",
-            fillColor: Cesium.Color.WHITE,
-            outlineColor: Cesium.Color.BLACK,
-            outlineWidth: 3,
-            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-            pixelOffset: new Cesium.Cartesian2(0, -18),
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          },
-        });
+        robotHandle.current = createAtlasRobot(Cesium, viewer, start);
       } catch {
         onStatusRef.current("Robot path unavailable");
       }
@@ -983,6 +973,8 @@ export function CesiumViewer({
       detachCameraControlsRef.current?.();
       detachCameraControlsRef.current = null;
       if (animFrame.current) cancelAnimationFrame(animFrame.current);
+      robotHandle.current?.destroy();
+      robotHandle.current = null;
       handlerRef.current?.destroy();
       viewerRef.current?.destroy();
       viewerRef.current = null;
@@ -1038,7 +1030,7 @@ export function CesiumViewer({
       if (layer.builtInKey === "robot-path" && delta.visibility) {
         const line = viewer.entities.getById("robot-path-line");
         if (line) line.show = layer.visible;
-        if (robotEntity.current) robotEntity.current.show = layer.visible;
+        robotHandle.current?.setShow(layer.visible);
         needsRender = true;
       }
       if (layer.builtInKey === "poles" && delta.visibility) {
@@ -1195,78 +1187,111 @@ export function CesiumViewer({
     config.cesiumIonToken,
   ]);
 
+  const syncRobotPose = useCallback(
+    (progress: number, followCamera: boolean) => {
+      const Cesium = cesiumRef.current;
+      const viewer = viewerRef.current;
+      const handle = robotHandle.current;
+      const path = robotPath.current;
+      if (!Cesium || !viewer || !handle || path.length < 2) return;
+      const pos = interpolatePath(Cesium, path, progress);
+      const heading = pathHeadingRad(path, progress);
+      handle.update(pos, heading);
+      if (
+        followCamera &&
+        !isUserControllingCamera() &&
+        walkthroughRef.current !== "off" &&
+        walkthroughRef.current !== "walk"
+      ) {
+        updateWalkthroughCamera(
+          Cesium,
+          viewer,
+          walkthroughRef.current,
+          pos,
+          path,
+          progress
+        );
+      }
+      viewer.scene.requestRender();
+    },
+    []
+  );
+
   useEffect(() => {
     const Cesium = cesiumRef.current;
     const viewer = viewerRef.current;
-    if (!Cesium || !viewer || !robotEntity.current) return;
+    if (!Cesium || !viewer || !robotHandle.current) return;
 
     if (animFrame.current) {
       cancelAnimationFrame(animFrame.current);
       animFrame.current = null;
     }
 
+    // Parked / paused: snap once. Do NOT depend on progress while playing —
+    // that previously re-started the RAF loop every frame and broke walkthrough.
     if (!robot.playing || robotPath.current.length < 2) {
-      const path = robotPath.current;
-      if (path.length >= 2) {
-        const pos = interpolatePath(Cesium, path, robot.progress);
-        robotEntity.current.position = new Cesium.ConstantPositionProperty(pos);
-        if (!isUserControllingCamera()) {
-          updateWalkthroughCamera(
-            Cesium,
-            viewer,
-            walkthroughRef.current,
-            pos,
-            path,
-            robot.progress
-          );
-        }
-        viewer.scene.requestRender();
-      }
+      syncRobotPose(robot.progress, true);
       return;
     }
 
+    clearUserCameraControl();
     let last = performance.now();
-    let progress = robot.progress;
+    let progress = robotProgressRef.current;
+    let lastEmit = 0;
 
     const tick = (now: number) => {
-      const dt = (now - last) / 1000;
+      if (!robotPlayingRef.current) return;
+      const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      progress = (progress + dt * robot.speed * 0.04) % 1;
-      const pos = interpolatePath(Cesium, robotPath.current, progress);
-      if (robotEntity.current) {
-        robotEntity.current.position = new Cesium.ConstantPositionProperty(pos);
+      progress = (progress + dt * robotSpeedRef.current * 0.05) % 1;
+      robotProgressRef.current = progress;
+      syncRobotPose(progress, true);
+      // Throttle React state updates so the loop isn't torn down by re-renders
+      if (now - lastEmit > 80) {
+        lastEmit = now;
+        onRobotProgressRef.current(progress);
       }
-      if (!isUserControllingCamera()) {
-        updateWalkthroughCamera(
-          Cesium,
-          viewer,
-          walkthroughRef.current,
-          pos,
-          robotPath.current,
-          progress
-        );
-      }
-      onRobotProgress(progress);
-      viewer.scene.requestRender();
       animFrame.current = requestAnimationFrame(tick);
     };
     animFrame.current = requestAnimationFrame(tick);
 
     return () => {
       if (animFrame.current) cancelAnimationFrame(animFrame.current);
+      animFrame.current = null;
+      onRobotProgressRef.current(robotProgressRef.current);
     };
-  }, [robot.playing, robot.speed, robot.progress, onRobotProgress]);
+  }, [robot.playing, syncRobotPose]);
+
+  // Progress reset / scrub while paused
+  useEffect(() => {
+    if (robot.playing) return;
+    syncRobotPose(robot.progress, true);
+  }, [robot.progress, robot.playing, syncRobotPose]);
 
   useEffect(() => {
     const Cesium = cesiumRef.current;
     const viewer = viewerRef.current;
     if (!Cesium || !viewer || !readyRef.current) return;
-    if (walkthroughMode !== "walk") return;
-    enterWalkCamera(Cesium, viewer);
-    onStatusRef.current(
-      "Walk mode — WASD or arrow keys to move, mouse to look"
-    );
-  }, [walkthroughMode]);
+
+    if (walkthroughMode === "walk") {
+      clearUserCameraControl();
+      enterWalkCamera(Cesium, viewer);
+      onStatusRef.current(
+        "Walk mode — WASD or arrow keys to move, mouse to look"
+      );
+      return;
+    }
+
+    if (walkthroughMode === "first" || walkthroughMode === "third") {
+      clearUserCameraControl();
+      syncRobotPose(robotProgressRef.current, true);
+      onStatusRef.current(
+        walkthroughMode === "first"
+          ? "1st person — following ATLAS-01"
+          : "3rd person — chase camera on ATLAS-01"
+      );
+    }
+  }, [walkthroughMode, syncRobotPose]);
 
   useEffect(() => {
     const Cesium = cesiumRef.current;

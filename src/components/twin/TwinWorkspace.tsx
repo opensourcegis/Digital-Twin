@@ -103,6 +103,10 @@ export function TwinWorkspace() {
 
   const twin = useTwinPlatform(robot.progress);
 
+  const handleRobotProgress = useCallback((progress: number) => {
+    setRobot((r) => (r.progress === progress ? r : { ...r, progress }));
+  }, []);
+
   useEffect(() => {
     fetch("/api/config")
       .then(async (r) => {
@@ -182,13 +186,32 @@ export function TwinWorkspace() {
       if (mode === "walk") {
         setRobot((r) => (r.playing ? { ...r, playing: false } : r));
       }
+      if ((mode === "first" || mode === "third") && !robot.playing) {
+        setPanel("sim");
+      }
     },
-    [twin]
+    [twin, robot.playing]
   );
 
   const handleWalkActive = useCallback(() => {
     setRobot((r) => (r.playing ? { ...r, playing: false } : r));
   }, []);
+
+  const togglePatrol = useCallback(() => {
+    const starting = !robot.playing;
+    if (starting && twin.walkthroughMode === "off") {
+      twin.setWalkthroughMode("third");
+    }
+    const criticalNearby = twin.alerts.some(
+      (a) => a.severity === "critical" && !a.acknowledged
+    );
+    setRobot((r) => ({
+      ...r,
+      playing: starting,
+      speed: starting && criticalNearby ? 0.5 : r.speed,
+    }));
+    setPanel("sim");
+  }, [robot.playing, twin]);
 
   const tools = useMemo(
     () =>
@@ -205,8 +228,12 @@ export function TwinWorkspace() {
     []
   );
 
+  const criticalCount = twin.alerts.filter(
+    (a) => a.severity === "critical" && !a.acknowledged
+  ).length;
+
   return (
-    <div className="relative h-[100dvh] w-full overflow-hidden bg-[#0b1220] text-slate-100">
+    <div className="relative h-[100dvh] w-full overflow-hidden bg-[#071018] text-slate-100">
       <div className="pointer-events-none absolute inset-0 z-0 twin-atmosphere" />
 
       <CesiumViewer
@@ -223,9 +250,7 @@ export function TwinWorkspace() {
         alerts={twin.alerts}
         onMeasure={setMeasure}
         onPolesChange={updatePoles}
-        onRobotProgress={(progress) =>
-          setRobot((r) => ({ ...r, progress }))
-        }
+        onRobotProgress={handleRobotProgress}
         onStatus={setStatus}
         onAssetSelect={twin.selectAsset}
         onWalkActive={handleWalkActive}
@@ -237,25 +262,38 @@ export function TwinWorkspace() {
       />
 
       {/* Top brand bar */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 p-4 md:p-5">
-        <div className="pointer-events-auto rounded-2xl border border-white/10 bg-[#0b1220]/75 px-4 py-3 shadow-2xl backdrop-blur-xl">
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 p-3 md:p-4">
+        <div className="pointer-events-auto glass-panel rounded-xl px-3.5 py-2.5">
           <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-teal-400 to-cyan-600 text-slate-950 shadow-lg shadow-teal-500/20">
+            <div className="grid h-9 w-9 place-items-center rounded-lg bg-gradient-to-br from-teal-400 to-cyan-700 text-slate-950 shadow-lg shadow-teal-500/15">
               <Layers className="h-4 w-4" />
             </div>
             <div>
               <p className="font-display text-lg leading-none tracking-tight text-white">
                 TwinBench
               </p>
-              <p className="mt-1 text-xs text-slate-400">
-                Self-hosted digital twin workbench
+              <p className="mt-1 text-[11px] text-slate-400">
+                Genesis Campus · Digital Twin Platform
               </p>
+            </div>
+            <div className="ml-2 hidden items-center gap-2 border-l border-white/10 pl-3 sm:flex">
+              <span className="hud-chip">
+                <span
+                  className={cn(
+                    "live-dot",
+                    !twin.connected && "live-dot--off",
+                    twin.connected && criticalCount > 0 && "live-dot--warn"
+                  )}
+                />
+                {twin.connected ? "Live" : "Offline"}
+              </span>
+              <span className="hud-chip">EPSG:4326</span>
             </div>
           </div>
         </div>
 
         <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-2">
-          <div className="flex items-center gap-1 rounded-2xl border border-white/10 bg-[#0b1220]/75 p-1 shadow-2xl backdrop-blur-xl">
+          <div className="glass-panel flex items-center gap-0.5 rounded-xl p-1">
             <Button asChild size="sm" variant="ghost">
               <Link href="/admin" title="Layer admin">
                 <Settings className="h-4 w-4" />
@@ -300,7 +338,7 @@ export function TwinWorkspace() {
             </Button>
           </div>
 
-          <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#0b1220]/75 px-3 py-2 shadow-2xl backdrop-blur-xl">
+          <div className="glass-panel flex items-center gap-3 rounded-xl px-3 py-2">
             <Lightbulb
               className={cn(
                 "h-4 w-4",
@@ -308,7 +346,7 @@ export function TwinWorkspace() {
               )}
             />
             <div className="text-xs">
-              <p className="font-medium text-slate-200">Pole lights</p>
+              <p className="font-medium text-slate-200">Site lighting</p>
               <p className="text-slate-500">
                 {poleLightsOn ? "On" : "Off"} · {poles.length} poles
               </p>
@@ -322,11 +360,24 @@ export function TwinWorkspace() {
         </div>
       </header>
 
+      {/* Walkthrough mode HUD */}
+      {twin.walkthroughMode !== "off" && (
+        <div className="pointer-events-none absolute left-1/2 top-[4.75rem] z-20 -translate-x-1/2 animate-in-fade">
+          <div className="glass-panel rounded-full px-3 py-1.5 text-[11px] text-slate-200">
+            {twin.walkthroughMode === "walk"
+              ? "Walkthrough · WASD move · drag look"
+              : twin.walkthroughMode === "first"
+                ? `Cab view · ATLAS-01${robot.playing ? " · on patrol" : ""}`
+                : `Chase cam · ATLAS-01${robot.playing ? " · on patrol" : ""}`}
+          </div>
+        </div>
+      )}
+
       {/* Left tool rail */}
-      <aside className="pointer-events-auto absolute bottom-20 left-3 z-20 flex max-h-[58vh] w-[min(100%-1.5rem,17.5rem)] flex-col gap-2 md:bottom-auto md:left-5 md:top-28 md:max-h-[calc(100dvh-10rem)]">
-        <div className="rounded-2xl border border-white/10 bg-[#0b1220]/80 p-2 shadow-2xl backdrop-blur-xl">
+      <aside className="pointer-events-auto absolute bottom-20 left-3 z-20 flex max-h-[58vh] w-[min(100%-1.5rem,17rem)] flex-col gap-2 md:bottom-auto md:left-4 md:top-24 md:max-h-[calc(100dvh-9.5rem)]">
+        <div className="glass-panel rounded-xl p-2">
           <p className="mb-2 px-2 pt-1 text-[10px] uppercase tracking-[0.18em] text-slate-500">
-            Tools
+            Analysis tools
           </p>
           <div className="grid grid-cols-2 gap-1">
             {tools.map((t) => {
@@ -383,7 +434,7 @@ export function TwinWorkspace() {
         </div>
 
         {measure && (
-          <div className="rounded-2xl border border-teal-400/20 bg-[#0b1220]/85 p-3 shadow-2xl backdrop-blur-xl animate-in-fade">
+          <div className="glass-panel animate-in-fade rounded-xl border-teal-400/20 p-3">
             <p className="text-[10px] uppercase tracking-[0.18em] text-teal-300/80">
               {measure.label}
             </p>
@@ -396,8 +447,8 @@ export function TwinWorkspace() {
       </aside>
 
       {/* Right panel */}
-      <aside className="pointer-events-auto absolute bottom-20 right-3 z-20 w-[min(100%-1.5rem,20rem)] md:bottom-auto md:right-5 md:top-28">
-        <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0b1220]/82 shadow-2xl backdrop-blur-xl">
+      <aside className="pointer-events-auto absolute bottom-20 right-3 z-20 w-[min(100%-1.5rem,20rem)] md:bottom-auto md:right-4 md:top-24">
+        <div className="glass-panel overflow-hidden rounded-xl">
           <div className="flex border-b border-white/10 p-1">
             {(
               [
@@ -412,9 +463,9 @@ export function TwinWorkspace() {
                 type="button"
                 onClick={() => setPanel(id)}
                 className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-xs transition",
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs transition",
                   panel === id
-                    ? "bg-white/10 text-white"
+                    ? "bg-teal-500/15 text-teal-100"
                     : "text-slate-400 hover:text-slate-200"
                 )}
               >
@@ -424,7 +475,7 @@ export function TwinWorkspace() {
             ))}
           </div>
 
-          <ScrollArea className="h-[min(42vh,22rem)]">
+          <ScrollArea className="h-[min(44vh,24rem)]">
             <div className="space-y-3 p-3">
               {panel === "ops" && (
                 <OperationsPanel
@@ -456,7 +507,7 @@ export function TwinWorkspace() {
                   layerCatalog.layers.map((layer) => (
                     <div
                       key={layer.configId}
-                      className="flex items-start justify-between gap-3 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2.5"
+                      className="flex items-start justify-between gap-3 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2.5"
                     >
                       <div>
                         <p className="text-sm text-slate-100">{layer.label}</p>
@@ -480,41 +531,42 @@ export function TwinWorkspace() {
                     onChange={handleWalkthroughChange}
                     robotPlaying={robot.playing}
                   />
-                  <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-amber-300" />
-                      <p className="text-sm font-medium text-amber-100">
-                        ATLAS-01 patrol
-                      </p>
+                  <div className="rounded-lg border border-amber-400/20 bg-amber-400/[0.06] p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <MapPin className="h-4 w-4 text-amber-300" />
+                        <p className="text-sm font-medium text-amber-50">
+                          ATLAS-01
+                        </p>
+                      </div>
+                      <span className="hud-chip">
+                        <span
+                          className={cn(
+                            "live-dot",
+                            !robot.playing && "live-dot--off"
+                          )}
+                        />
+                        {robot.playing ? "Patrol" : "Standby"}
+                      </span>
                     </div>
-                    <p className="mt-1 text-xs text-slate-400">
-                      Patrol tied to live telemetry — slows near critical alerts.
-                      Battery {twin.robotTelemetry?.batteryPct?.toFixed(0) ?? "—"}%.
+                    <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
+                      Autonomous AMR on the campus route. Slows near critical
+                      alerts. Battery{" "}
+                      {twin.robotTelemetry?.batteryPct?.toFixed(0) ?? "—"}%.
                     </p>
                   </div>
                   <div className="flex gap-2">
                     <Button
                       className="flex-1"
                       variant={robot.playing ? "secondary" : "default"}
-                      onClick={() =>
-                        setRobot((r) => ({
-                          ...r,
-                          playing: !r.playing,
-                          speed:
-                            twin.alerts.some(
-                              (a) => a.severity === "critical" && !a.acknowledged
-                            ) && !r.playing
-                              ? 0.5
-                              : r.speed,
-                        }))
-                      }
+                      onClick={togglePatrol}
                     >
                       {robot.playing ? (
                         <Pause className="h-4 w-4" />
                       ) : (
                         <Play className="h-4 w-4" />
                       )}
-                      {robot.playing ? "Pause" : "Play"}
+                      {robot.playing ? "Pause" : "Start patrol"}
                     </Button>
                     <Button
                       variant="secondary"
@@ -530,7 +582,7 @@ export function TwinWorkspace() {
                     </Button>
                   </div>
                   <label className="block text-xs text-slate-400">
-                    Speed
+                    Patrol speed
                     <input
                       type="range"
                       min={0.35}
@@ -548,22 +600,22 @@ export function TwinWorkspace() {
                   </label>
                   <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
                     <div
-                      className="h-full rounded-full bg-gradient-to-r from-amber-400 to-orange-500 transition-[width]"
+                      className="h-full rounded-full bg-gradient-to-r from-amber-400 to-orange-500 transition-[width] duration-100"
                       style={{ width: `${robot.progress * 100}%` }}
                     />
                   </div>
                   <p className="text-xs text-slate-500">
-                    Progress {(robot.progress * 100).toFixed(0)}%
+                    Route progress {(robot.progress * 100).toFixed(0)}%
                   </p>
                 </>
               )}
 
               {panel === "connect" && (
                 <>
-                  <div className="rounded-xl border border-teal-400/20 bg-teal-400/5 p-3">
+                  <div className="rounded-lg border border-teal-400/20 bg-teal-400/[0.06] p-3">
                     <div className="flex items-center gap-2">
                       <FlaskConical className="h-4 w-4 text-teal-300" />
-                      <p className="text-sm font-medium text-teal-100">
+                      <p className="text-sm font-medium text-teal-50">
                         Sandcastle test
                       </p>
                     </div>
@@ -615,7 +667,7 @@ export function TwinWorkspace() {
                       className="mt-1.5 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 outline-none ring-teal-400/40 placeholder:text-slate-600 focus:ring-2"
                     />
                   </label>
-                  <div className="rounded-xl border border-white/5 bg-white/[0.03] p-3 text-xs text-slate-400">
+                  <div className="rounded-lg border border-white/5 bg-white/[0.03] p-3 text-xs text-slate-400">
                     <p>
                       Ion token:{" "}
                       {config.cesiumIonToken ? (
@@ -644,7 +696,7 @@ export function TwinWorkspace() {
 
       {/* Status bar */}
       <footer className="absolute inset-x-0 bottom-0 z-20 p-3 md:p-4">
-        <div className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-[#0b1220]/78 px-3 py-2 shadow-2xl backdrop-blur-xl">
+        <div className="glass-panel flex flex-col gap-2 rounded-xl px-3 py-2">
           <TimeSlider
             isLive={twin.isLive}
             simulationTime={twin.simulationTime}
@@ -658,8 +710,8 @@ export function TwinWorkspace() {
                 {poleLightsOn ? "on" : "off"}
               </span>
               <span className="hidden sm:inline">
-                {twin.alerts.filter((a) => a.severity === "critical").length > 0
-                  ? `${twin.alerts.filter((a) => a.severity === "critical").length} critical alerts`
+                {criticalCount > 0
+                  ? `${criticalCount} critical alerts`
                   : activeScene === "sandcastle"
                     ? "Sandcastle sample tiles"
                     : "Campus twin · live telemetry"}
