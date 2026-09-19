@@ -30,6 +30,8 @@ import {
   Wrench,
   Box,
   Focus,
+  Scissors,
+  Magnet,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -75,11 +77,13 @@ import {
 } from "@/lib/platform/types";
 import type { DockModuleId } from "@/lib/platform/types";
 import { ErrorDashboard, type TwinError } from "@/components/twin/ErrorDashboard";
+import { requestZoomToLayer } from "@/lib/twin/zoom-to-layer";
+import type { TwinErrorEvent, ZoomLayerTarget } from "@/lib/twin/zoom-to-layer";
 import {
-  requestZoomToLayer,
-  type TwinErrorEvent,
-  type ZoomLayerTarget,
-} from "@/lib/twin/zoom-to-layer";
+  TILESET_STYLE_PRESETS,
+  type DrapeMode,
+  type TilesetStylePreset,
+} from "@/lib/twin/cesium-advanced";
 
 type DockPanel = DockModuleId | null;
 
@@ -120,6 +124,11 @@ export function TwinWorkspace() {
   const [status, setStatus] = useState("Booting…");
   const [errors, setErrors] = useState<TwinError[]>([]);
   const [tilesetUrl, setTilesetUrl] = useState("");
+  const [vectorTilesUrl, setVectorTilesUrl] = useState("");
+  const [drapeMode, setDrapeMode] = useState<DrapeMode>("both");
+  const [tilesetStylePreset, setTilesetStylePreset] =
+    useState<TilesetStylePreset>("default");
+  const [clipInverse, setClipInverse] = useState(false);
   const [activeScene, setActiveScene] = useState<"demo" | "tiles">("demo");
   const pendingTilesetZoom = useRef<ZoomLayerTarget | null>(null);
   const [robot, setRobot] = useState<RobotState>({
@@ -465,6 +474,9 @@ export function TwinWorkspace() {
       { id: "height-profile" as const, label: "Height", icon: Mountain },
       { id: "identify" as const, label: "Identify", icon: Crosshair },
       { id: "viewshed" as const, label: "Viewshed", icon: Eye },
+      { id: "clip-polygon" as const, label: "Clip", icon: Scissors },
+      { id: "clip-hole" as const, label: "Clip hole", icon: Scissors },
+      { id: "bim-snap" as const, label: "BIM snap", icon: Magnet },
       { id: "place-pole" as const, label: "Place pole", icon: Zap },
       { id: "draw-poles" as const, label: "Draw poles", icon: Waypoints },
       { id: "robot-waypoints" as const, label: "Move robot", icon: MapPin },
@@ -473,6 +485,9 @@ export function TwinWorkspace() {
       (t) =>
         t.id === "navigate" ||
         t.id === "robot-waypoints" ||
+        t.id === "clip-polygon" ||
+        t.id === "clip-hole" ||
+        t.id === "bim-snap" ||
         gis.enabledTools.includes(t.id as (typeof gis.enabledTools)[number])
     );
   }, [gis.enabledTools]);
@@ -576,6 +591,10 @@ export function TwinWorkspace() {
         poleLightsOn={poleLightsOn}
         robot={robot}
         tilesetUrl={tilesetUrl}
+        vectorTilesUrl={vectorTilesUrl}
+        drapeMode={drapeMode}
+        tilesetStylePreset={tilesetStylePreset}
+        clipInverse={clipInverse}
         symbology={twin.symbology}
         walkthroughMode={twin.walkthroughMode}
         alerts={twin.alerts}
@@ -978,6 +997,69 @@ export function TwinWorkspace() {
                         </span>
                       </p>
                     </div>
+
+                    <Separator />
+                    <p className="text-[11px] font-medium tracking-wide text-slate-300">
+                      CesiumJS 1.145
+                    </p>
+                    <label className="block text-xs text-slate-400">
+                      Vector / secondary 3D Tiles URL
+                      <input
+                        value={vectorTilesUrl}
+                        onChange={(e) => setVectorTilesUrl(e.target.value)}
+                        placeholder="https://…/tileset.json (vector or mesh)"
+                        className="mt-1.5 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 font-mono text-[11px] text-slate-100 outline-none ring-teal-400/40 placeholder:text-slate-600 focus:ring-2"
+                      />
+                    </label>
+                    <label className="block text-xs text-slate-400">
+                      3D Tiles style
+                      <select
+                        value={tilesetStylePreset}
+                        onChange={(e) =>
+                          setTilesetStylePreset(
+                            e.target.value as TilesetStylePreset
+                          )
+                        }
+                        className="mt-1.5 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[11px] text-slate-100 outline-none"
+                      >
+                        {(
+                          Object.keys(TILESET_STYLE_PRESETS) as TilesetStylePreset[]
+                        ).map((k) => (
+                          <option key={k} value={k}>
+                            {TILESET_STYLE_PRESETS[k].label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block text-xs text-slate-400">
+                      Drape vectors on
+                      <select
+                        value={drapeMode}
+                        onChange={(e) =>
+                          setDrapeMode(e.target.value as DrapeMode)
+                        }
+                        className="mt-1.5 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[11px] text-slate-100 outline-none"
+                      >
+                        <option value="both">Terrain + 3D Tiles</option>
+                        <option value="tiles">3D Tiles only</option>
+                        <option value="terrain">Terrain only</option>
+                        <option value="none">Off</option>
+                      </select>
+                    </label>
+                    <div className="flex items-center justify-between rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2">
+                      <span className="text-xs text-slate-300">
+                        Inverse clip
+                      </span>
+                      <Switch
+                        checked={clipInverse}
+                        onCheckedChange={setClipInverse}
+                        aria-label="Inverse clipping"
+                      />
+                    </div>
+                    <p className="text-[10px] leading-relaxed text-slate-500">
+                      Tools → Clip / Clip hole for ClippingPolygon (holes
+                      supported). BIM snap needs ion token + BIM/CAD asset.
+                    </p>
                   </>
                 )}
 
@@ -1061,6 +1143,23 @@ export function TwinWorkspace() {
                                 );
                                 setMeasure(null);
                               }
+                              if (t.id === "clip-polygon") {
+                                setStatus(
+                                  "Clip: click outer ring vertices · double-click to apply"
+                                );
+                              }
+                              if (t.id === "clip-hole") {
+                                setStatus(
+                                  "Clip hole: click hole ring · double-click to close hole"
+                                );
+                              }
+                              if (t.id === "bim-snap") {
+                                setStatus(
+                                  config.cesiumIonToken && config.cesiumIonAssetId
+                                    ? "BIM snap: click a feature (IonSnapService)"
+                                    : "BIM snap needs CESIUM_ION_TOKEN + ion BIM asset"
+                                );
+                              }
                             }}
                           >
                             <Icon className="h-3.5 w-3.5" />
@@ -1089,12 +1188,25 @@ export function TwinWorkspace() {
                         disabled={!poles.length}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
-                        Clear
+                        Clear poles
                       </Button>
                     </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="w-full"
+                      onClick={() => {
+                        window.dispatchEvent(new Event("twin-clear-clip"));
+                        setStatus("Clipping cleared");
+                      }}
+                    >
+                      <Scissors className="h-3.5 w-3.5" />
+                      Clear clipping
+                    </Button>
                     <p className="text-[11px] text-slate-500">
-                      Navigate · scroll/pinch zoom · drag rotate · right-drag
-                      tilt
+                      Clip / Clip hole use Cesium 1.145 ClippingPolygon (holes
+                      supported). BIM snap uses IonSnapService when ion is
+                      configured.
                     </p>
                   </>
                 )}

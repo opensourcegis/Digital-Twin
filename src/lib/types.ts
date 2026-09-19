@@ -7,7 +7,10 @@ export type ActiveTool =
   | "viewshed"
   | "place-pole"
   | "draw-poles"
-  | "robot-waypoints";
+  | "robot-waypoints"
+  | "clip-polygon"
+  | "clip-hole"
+  | "bim-snap";
 
 export type LayerId =
   | "buildings"
