@@ -3,6 +3,8 @@ type CesiumNS = any;
 
 export interface AtlasRobotHandle {
   root: any;
+  /** All robot entities — pass to clamp/sampleHeight exclude lists */
+  entities: any[];
   getPose: () => {
     lon: number;
     lat: number;
@@ -19,6 +21,7 @@ export interface AtlasRobotHandle {
 /**
  * Visible industrial AMR — all parts driven by CallbackProperty from one pose
  * so the body, wheels, and label stay locked together while WASD moves.
+ * Dimensions are roughly human-scale (~1.2 m long) on WGS84 ENU.
  */
 export function createAtlasRobot(
   Cesium: CesiumNS,
@@ -32,7 +35,8 @@ export function createAtlasRobot(
     heading: start.heading ?? 0,
   };
 
-  const SCALE = 2.4;
+  // ~1.2 m chassis length — was 2.4× which read as a truck on tilesets
+  const SCALE = 0.55;
   const entities: any[] = [];
 
   const scratchBase = new Cesium.Cartesian3();
@@ -111,7 +115,7 @@ export function createAtlasRobot(
       outlineWidth: 4,
       style: Cesium.LabelStyle.FILL_AND_OUTLINE,
       verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-      pixelOffset: new Cesium.Cartesian2(0, -42),
+      pixelOffset: new Cesium.Cartesian2(0, -28),
       disableDepthTestDistance: Number.POSITIVE_INFINITY,
       showBackground: true,
       backgroundColor: Cesium.Color.fromCssColorString("#071018").withAlpha(0.82),
@@ -234,6 +238,7 @@ export function createAtlasRobot(
 
   return {
     root,
+    entities,
     getPose: () => ({ ...pose }),
     update,
     setShow(show: boolean) {

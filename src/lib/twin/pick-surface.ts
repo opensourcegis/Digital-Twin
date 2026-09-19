@@ -10,6 +10,7 @@ export type SurfaceHit = {
 
 /**
  * Pick a point on the loaded tileset / globe under the cursor.
+ * Lon/lat are EPSG:4326 degrees; height is WGS84 ellipsoidal meters.
  * Rejects sky and near-camera depth artifacts that launch the robot upward.
  */
 export function pickSurfaceCartesian(
@@ -22,6 +23,7 @@ export function pickSurfaceCartesian(
   const tileset = opts?.tileset ?? null;
   const camPos = viewer.camera.positionWC;
   const bs = tileset?.boundingSphere ?? null;
+  const ellipsoid = Cesium.Ellipsoid.WGS84;
 
   const candidates: any[] = [];
 
@@ -49,7 +51,7 @@ export function pickSurfaceCartesian(
     push(viewer.scene.pickPosition(windowPosition));
   }
 
-  // Only use globe if no tileset is loaded — globe under a tileset is wrong
+  // Only use globe if no tileset is loaded — globe under a tileset is wrong datum
   if (!tileset) {
     try {
       const ray = viewer.camera.getPickRay(windowPosition);
@@ -59,7 +61,7 @@ export function pickSurfaceCartesian(
     }
   }
 
-  const camCarto = Cesium.Cartographic.fromCartesian(camPos);
+  const camCarto = Cesium.Cartographic.fromCartesian(camPos, ellipsoid);
   const camH =
     camCarto && Number.isFinite(camCarto.height) ? camCarto.height : 0;
 
@@ -71,14 +73,14 @@ export function pickSurfaceCartesian(
     const distCam = Cesium.Cartesian3.distance(cartesian, camPos);
     if (!(distCam > 5 && distCam < 2_000_000)) continue;
 
-    // When a tileset is active, require the hit to be inside its bounds
+    // When a tileset is active, require the hit to be inside its ECEF bounds
     if (bs) {
       const dBs = Cesium.Cartesian3.distance(cartesian, bs.center);
       const r = Math.max(bs.radius || 1, 1);
       if (dBs > r * 1.35) continue;
     }
 
-    const carto = Cesium.Cartographic.fromCartesian(cartesian);
+    const carto = Cesium.Cartographic.fromCartesian(cartesian, ellipsoid);
     if (!carto || !Number.isFinite(carto.height)) continue;
     const height = carto.height;
 
@@ -108,17 +110,18 @@ export function pickSurfaceCartesian(
 
   let height = best.height;
 
-  // Clamp down onto the mesh from just above the hit
+  // Clamp down onto the mesh from just above the hit (WGS84)
   try {
     if (viewer.scene.clampToHeightSupported) {
       const probe = Cesium.Cartesian3.fromDegrees(
         best.lon,
         best.lat,
-        height + 30
+        height + 30,
+        ellipsoid
       );
       const clamped = viewer.scene.clampToHeight(probe, exclude);
       if (clamped) {
-        const c = Cesium.Cartographic.fromCartesian(clamped);
+        const c = Cesium.Cartographic.fromCartesian(clamped, ellipsoid);
         if (
           c &&
           Number.isFinite(c.height) &&
@@ -132,20 +135,25 @@ export function pickSurfaceCartesian(
     /* keep */
   }
 
-  // If tileset known, keep height inside a sane band around the sphere
+  // Keep height inside tileset ECEF → WGS84 band
   if (bs) {
-    const centerCarto = Cesium.Cartographic.fromCartesian(bs.center);
+    const centerCarto = Cesium.Cartographic.fromCartesian(bs.center, ellipsoid);
     if (centerCarto && Number.isFinite(centerCarto.height)) {
       const mid = centerCarto.height;
       const span = Math.max(bs.radius || 50, 50);
-      height = Math.min(mid + span, Math.max(mid - span, height));
+      height = Math.min(mid + span * 0.55, Math.max(mid - span, height));
     }
   }
 
-  height += 0.4; // sit chassis on surface
+  height += 0.35; // sit chassis on surface
 
   return {
-    cartesian: Cesium.Cartesian3.fromDegrees(best.lon, best.lat, height),
+    cartesian: Cesium.Cartesian3.fromDegrees(
+      best.lon,
+      best.lat,
+      height,
+      ellipsoid
+    ),
     lon: best.lon,
     lat: best.lat,
     height,
