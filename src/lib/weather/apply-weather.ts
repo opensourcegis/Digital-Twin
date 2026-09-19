@@ -43,9 +43,8 @@ export function syncSolarClock(Cesium: CesiumNS, viewer: any) {
 }
 
 /**
- * Day/night base lighting. Day = bright solar + full-color scene.
- * Night = cool fill + modest brightness stage (mesh tinted separately).
- * Weather adjusts sun/fog/sky only — never greys photogrammetry albedo.
+ * Day/night base lighting with an always-on brightness stage so toggling
+ * Sun/Moon is unmistakable (day ~1.15, night ~0.38).
  */
 export function applyTimeOfDay(
   Cesium: CesiumNS,
@@ -63,53 +62,50 @@ export function applyTimeOfDay(
 
   if (mode === "day") {
     syncSolarClock(Cesium, viewer);
-    const intensity = Math.max(0.7, 1.15 - clouds * 0.35 - wet * 0.15);
     scene.light = new Cesium.SunLight({
-      color: Cesium.Color.fromCssColorString(
-        clouds > 0.7 ? "#eef2f6" : "#ffffff"
-      ),
-      intensity,
+      color: Cesium.Color.WHITE,
+      intensity: Math.max(1.0, 1.35 - clouds * 0.25 - wet * 0.1),
     });
-    scene.globe.atmosphereLightIntensity = 14 * (1 - clouds * 0.3);
-    scene.globe.baseColor = Cesium.Color.fromCssColorString("#2a3a48");
+    scene.globe.atmosphereLightIntensity = 16 * (1 - clouds * 0.2);
+    scene.globe.baseColor = Cesium.Color.fromCssColorString("#3a4a58");
     if (scene.skyAtmosphere) {
-      scene.skyAtmosphere.hueShift = -0.02 - clouds * 0.04;
-      scene.skyAtmosphere.saturationShift = -0.02 - clouds * 0.3 - wet * 0.1;
-      scene.skyAtmosphere.brightnessShift = 0.08 - clouds * 0.2 - wet * 0.1;
+      scene.skyAtmosphere.hueShift = 0;
+      scene.skyAtmosphere.saturationShift = -clouds * 0.15;
+      scene.skyAtmosphere.brightnessShift = 0.12 - clouds * 0.12;
     }
-    scene.fog.enabled = true;
-    scene.fog.density = 0.00012 + clouds * 0.00025 + wind * 0.0001;
-    scene.fog.minimumBrightness = 0.12;
-    scene.backgroundColor = Cesium.Color.fromCssColorString(
-      clouds > 0.65 ? "#8a9aab" : "#87a0b8"
-    );
-    setSceneBrightnessStage(Cesium, viewer, false, 1);
+    scene.fog.enabled = clouds > 0.5 || wet > 0.2;
+    scene.fog.density = 0.00008 + clouds * 0.00015 + wind * 0.00006;
+    scene.fog.minimumBrightness = 0.18;
+    scene.backgroundColor = Cesium.Color.fromCssColorString("#8eb4d4");
+    // Always-on stage: day is bright
+    setSceneBrightnessStage(Cesium, viewer, 1.18);
   } else {
     try {
       const nightDate = new Date();
-      nightDate.setUTCHours(8, 0, 0, 0);
+      nightDate.setUTCHours(7, 0, 0, 0);
       viewer.clock.currentTime = Cesium.JulianDate.fromDate(nightDate);
       viewer.clock.shouldAnimate = false;
     } catch {
       /* ignore */
     }
     scene.light = new Cesium.DirectionalLight({
-      direction: new Cesium.Cartesian3(0.2, 0.4, -0.85),
-      color: Cesium.Color.fromCssColorString("#9bb0c8"),
-      intensity: 0.35 * (1 - clouds * 0.25),
+      direction: new Cesium.Cartesian3(0.25, 0.45, -0.8),
+      color: Cesium.Color.fromCssColorString("#6a7f9a"),
+      intensity: 0.2,
     });
-    scene.globe.atmosphereLightIntensity = 1.4;
-    scene.globe.baseColor = Cesium.Color.fromCssColorString("#0a1018");
+    scene.globe.atmosphereLightIntensity = 0.6;
+    scene.globe.baseColor = Cesium.Color.fromCssColorString("#05080e");
     if (scene.skyAtmosphere) {
-      scene.skyAtmosphere.hueShift = -0.16;
-      scene.skyAtmosphere.saturationShift = -0.3 - clouds * 0.08;
-      scene.skyAtmosphere.brightnessShift = -0.42 - clouds * 0.08;
+      scene.skyAtmosphere.hueShift = -0.2;
+      scene.skyAtmosphere.saturationShift = -0.4;
+      scene.skyAtmosphere.brightnessShift = -0.65;
     }
     scene.fog.enabled = true;
-    scene.fog.density = 0.0004 + clouds * 0.0002 + wind * 0.0001;
-    scene.fog.minimumBrightness = 0.03;
-    scene.backgroundColor = Cesium.Color.fromCssColorString("#05080e");
-    setSceneBrightnessStage(Cesium, viewer, true, 0.72);
+    scene.fog.density = 0.0007 + clouds * 0.0003;
+    scene.fog.minimumBrightness = 0.01;
+    scene.backgroundColor = Cesium.Color.fromCssColorString("#02040a");
+    // Always-on stage: night is dark — big contrast vs day 1.18
+    setSceneBrightnessStage(Cesium, viewer, 0.36);
   }
 
   scene.requestRender();
@@ -117,27 +113,30 @@ export function applyTimeOfDay(
 
 const SCENE_BRIGHTNESS_TAG = "__twinSceneBrightness";
 
+/** Always enabled — value is the exposure knob (day > 1, night << 1). */
 function setSceneBrightnessStage(
   Cesium: CesiumNS,
   viewer: any,
-  enabled: boolean,
-  brightness = 1
+  brightness: number
 ) {
   const scene = viewer?.scene;
   if (!scene?.postProcessStages || !Cesium?.PostProcessStageLibrary) return;
   try {
     let stage = viewer[SCENE_BRIGHTNESS_TAG] ?? viewer.__twinNightBrightness;
-    if (!stage) {
+    if (!stage || stage.isDestroyed?.()) {
       stage = Cesium.PostProcessStageLibrary.createBrightnessStage();
       scene.postProcessStages.add(stage);
       viewer[SCENE_BRIGHTNESS_TAG] = stage;
     }
-    // Disable legacy night-only stage if still present
     if (viewer.__twinNightBrightness && viewer.__twinNightBrightness !== stage) {
-      viewer.__twinNightBrightness.enabled = false;
+      try {
+        viewer.__twinNightBrightness.enabled = false;
+      } catch {
+        /* ignore */
+      }
     }
-    stage.enabled = enabled;
-    stage.uniforms.brightness = enabled ? brightness : 1.0;
+    stage.enabled = true;
+    stage.uniforms.brightness = brightness;
   } catch (err) {
     console.warn("Scene brightness stage failed", err);
   }
@@ -237,14 +236,15 @@ export function applyWeatherToScene(
   scene.fog.minimumBrightness = timeOfDay === "night" ? 0.02 : 0.07;
 
   if (typeof scene.globe.atmosphereLightIntensity === "number") {
-    const base = timeOfDay === "day" ? 12 : 2.5;
+    const base = timeOfDay === "day" ? 16 : 0.8;
     scene.globe.atmosphereLightIntensity =
-      base * (1 - wet * 0.3) * (1 - clouds * 0.4);
+      base * (1 - wet * 0.2) * (1 - clouds * 0.25);
   }
 
+  // Do NOT crush day sun intensity — brightness stage handles exposure
   if (timeOfDay === "day" && scene.light && "intensity" in scene.light) {
     try {
-      scene.light.intensity = Math.max(0.3, 1 - clouds * 0.55 - wet * 0.15);
+      scene.light.intensity = Math.max(1.0, 1.35 - clouds * 0.2 - wet * 0.1);
     } catch {
       /* ignore */
     }
