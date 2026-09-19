@@ -43,10 +43,9 @@ export function syncSolarClock(Cesium: CesiumNS, viewer: any) {
 }
 
 /**
- * Day/night base lighting. Uses live solar time for day (SunLight);
- * night uses a dim cool fill so campus stays readable.
- * Also toggles a scene brightness post-process so photogrammetry meshes
- * (which ignore lights) still read as night.
+ * Day/night base lighting. Day = bright solar + full-color scene.
+ * Night = cool fill + modest brightness stage (mesh tinted separately).
+ * Weather adjusts sun/fog/sky only — never greys photogrammetry albedo.
  */
 export function applyTimeOfDay(
   Cesium: CesiumNS,
@@ -64,101 +63,83 @@ export function applyTimeOfDay(
 
   if (mode === "day") {
     syncSolarClock(Cesium, viewer);
-    const intensity = Math.max(0.35, 1 - clouds * 0.55 - wet * 0.2);
+    const intensity = Math.max(0.7, 1.15 - clouds * 0.35 - wet * 0.15);
     scene.light = new Cesium.SunLight({
       color: Cesium.Color.fromCssColorString(
-        clouds > 0.55 ? "#d5dde8" : "#ffffff"
+        clouds > 0.7 ? "#eef2f6" : "#ffffff"
       ),
       intensity,
     });
-    scene.globe.atmosphereLightIntensity = 12 * (1 - clouds * 0.45);
-    scene.globe.baseColor = Cesium.Color.fromCssColorString("#1a2330");
+    scene.globe.atmosphereLightIntensity = 14 * (1 - clouds * 0.3);
+    scene.globe.baseColor = Cesium.Color.fromCssColorString("#2a3a48");
     if (scene.skyAtmosphere) {
-      scene.skyAtmosphere.hueShift = -0.04 - clouds * 0.06;
-      scene.skyAtmosphere.saturationShift = -0.05 - clouds * 0.45 - wet * 0.2;
-      scene.skyAtmosphere.brightnessShift = 0.04 - clouds * 0.35 - wet * 0.2;
+      scene.skyAtmosphere.hueShift = -0.02 - clouds * 0.04;
+      scene.skyAtmosphere.saturationShift = -0.02 - clouds * 0.3 - wet * 0.1;
+      scene.skyAtmosphere.brightnessShift = 0.08 - clouds * 0.2 - wet * 0.1;
     }
     scene.fog.enabled = true;
-    scene.fog.density = 0.00016 + clouds * 0.00035 + wind * 0.00015;
-    scene.fog.minimumBrightness = 0.08;
+    scene.fog.density = 0.00012 + clouds * 0.00025 + wind * 0.0001;
+    scene.fog.minimumBrightness = 0.12;
     scene.backgroundColor = Cesium.Color.fromCssColorString(
-      clouds > 0.6 ? "#6b7c8f" : "#87a0b8"
+      clouds > 0.65 ? "#8a9aab" : "#87a0b8"
     );
-    // Day: mild dim for heavy cloud / rain so mesh tracks weather
-    if (clouds > 0.45 || wet > 0.25) {
-      setNightBrightnessStage(
-        Cesium,
-        viewer,
-        true,
-        Math.max(0.55, 1 - clouds * 0.35 - wet * 0.2)
-      );
-    } else {
-      setNightBrightnessStage(Cesium, viewer, false, 1);
-    }
+    setSceneBrightnessStage(Cesium, viewer, false, 1);
   } else {
-    // Keep sun below the horizon so mesh IBL / shadows read as night
     try {
       const nightDate = new Date();
-      nightDate.setUTCHours(8, 0, 0, 0); // ~night for US west campus lon
+      nightDate.setUTCHours(8, 0, 0, 0);
       viewer.clock.currentTime = Cesium.JulianDate.fromDate(nightDate);
       viewer.clock.shouldAnimate = false;
     } catch {
       /* ignore */
     }
     scene.light = new Cesium.DirectionalLight({
-      direction: new Cesium.Cartesian3(0.15, 0.35, -0.9),
-      color: Cesium.Color.fromCssColorString("#8aa4c4"),
-      intensity: 0.22 * (1 - clouds * 0.35),
+      direction: new Cesium.Cartesian3(0.2, 0.4, -0.85),
+      color: Cesium.Color.fromCssColorString("#9bb0c8"),
+      intensity: 0.35 * (1 - clouds * 0.25),
     });
-    scene.globe.atmosphereLightIntensity = 1.0;
+    scene.globe.atmosphereLightIntensity = 1.4;
     scene.globe.baseColor = Cesium.Color.fromCssColorString("#0a1018");
     if (scene.skyAtmosphere) {
-      scene.skyAtmosphere.hueShift = -0.18;
-      scene.skyAtmosphere.saturationShift = -0.35 - clouds * 0.1;
-      scene.skyAtmosphere.brightnessShift = -0.55 - clouds * 0.1;
+      scene.skyAtmosphere.hueShift = -0.16;
+      scene.skyAtmosphere.saturationShift = -0.3 - clouds * 0.08;
+      scene.skyAtmosphere.brightnessShift = -0.42 - clouds * 0.08;
     }
     scene.fog.enabled = true;
-    scene.fog.density = 0.00055 + clouds * 0.00025 + wind * 0.00012;
-    scene.fog.minimumBrightness = 0.015;
+    scene.fog.density = 0.0004 + clouds * 0.0002 + wind * 0.0001;
+    scene.fog.minimumBrightness = 0.03;
     scene.backgroundColor = Cesium.Color.fromCssColorString("#05080e");
-    setNightBrightnessStage(
-      Cesium,
-      viewer,
-      true,
-      Math.max(0.4, 0.48 - clouds * 0.05 - wet * 0.03)
-    );
+    setSceneBrightnessStage(Cesium, viewer, true, 0.72);
   }
 
   scene.requestRender();
 }
 
-const NIGHT_STAGE_TAG = "__twinNightBrightness";
+const SCENE_BRIGHTNESS_TAG = "__twinSceneBrightness";
 
-/** Full-frame brightness — catches unlit photogrammetry tilesets. */
-function setNightBrightnessStage(
+function setSceneBrightnessStage(
   Cesium: CesiumNS,
   viewer: any,
   enabled: boolean,
-  brightness = 0.32
+  brightness = 1
 ) {
   const scene = viewer?.scene;
   if (!scene?.postProcessStages || !Cesium?.PostProcessStageLibrary) return;
   try {
-    let stage = viewer[NIGHT_STAGE_TAG];
+    let stage = viewer[SCENE_BRIGHTNESS_TAG] ?? viewer.__twinNightBrightness;
     if (!stage) {
       stage = Cesium.PostProcessStageLibrary.createBrightnessStage();
-      stage.uniforms.brightness = brightness;
       scene.postProcessStages.add(stage);
-      viewer[NIGHT_STAGE_TAG] = stage;
+      viewer[SCENE_BRIGHTNESS_TAG] = stage;
+    }
+    // Disable legacy night-only stage if still present
+    if (viewer.__twinNightBrightness && viewer.__twinNightBrightness !== stage) {
+      viewer.__twinNightBrightness.enabled = false;
     }
     stage.enabled = enabled;
-    if (enabled) {
-      stage.uniforms.brightness = brightness;
-    } else {
-      stage.uniforms.brightness = 1.0;
-    }
+    stage.uniforms.brightness = enabled ? brightness : 1.0;
   } catch (err) {
-    console.warn("Night brightness stage failed", err);
+    console.warn("Scene brightness stage failed", err);
   }
 }
 
