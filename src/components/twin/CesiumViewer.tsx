@@ -28,6 +28,7 @@ import {
   attachCameraControls,
   clearUserCameraControl,
   isUserControllingCamera,
+  markUserCameraControl,
 } from "@/lib/twin/camera-controls";
 import {
   layerRenderStateChanged,
@@ -61,7 +62,6 @@ import {
   zoomCameraToLayer,
   type ZoomLayerTarget,
 } from "@/lib/twin/zoom-to-layer";
-import { markUserCameraControl } from "@/lib/twin/camera-controls";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type CesiumNS = any;
