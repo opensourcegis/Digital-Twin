@@ -127,6 +127,7 @@ export function TwinWorkspace() {
     progress: 0,
     speed: 1,
   });
+  const [robotResetToken, setRobotResetToken] = useState(0);
   const [panel, setPanel] = useState<DockPanel>(null);
   const [platform, setPlatform] = useState<PlatformSettings | null>(null);
 
@@ -584,6 +585,7 @@ export function TwinWorkspace() {
         onStatus={setStatus}
         onAssetSelect={twin.selectAsset}
         onWalkActive={handleWalkActive}
+        robotResetToken={robotResetToken}
       />
 
       <AssetDetailDrawer
@@ -845,7 +847,9 @@ export function TwinWorkspace() {
                           twin.setWalkthroughMode("walk");
                           setRobot((r) => ({ ...r, playing: false }));
                           setStatus(
-                            "Click the map or tileset surface to move the robot"
+                            tilesetUrl.trim()
+                              ? "Click the external tileset to place ATLAS-01 (stays on this layer)"
+                              : "Click the map to place ATLAS-01"
                           );
                         }}
                       >
@@ -860,8 +864,14 @@ export function TwinWorkspace() {
                             playing: false,
                             progress: 0,
                           }));
+                          setRobotResetToken((n) => n + 1);
                           twin.setWalkthroughMode("walk");
                           setTool("navigate");
+                          setStatus(
+                            tilesetUrl.trim()
+                              ? "Reset — robot on external tileset"
+                              : "Reset — robot on campus"
+                          );
                         }}
                       >
                         Reset

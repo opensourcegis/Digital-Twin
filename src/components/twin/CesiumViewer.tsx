@@ -28,6 +28,8 @@ import {
 } from "@/lib/twin/keyboard-walk";
 import { pickSurfaceCartesian } from "@/lib/twin/pick-surface";
 import {
+  isPoseOnTileset,
+  poseAtTilesetCenter,
   sampleSurfaceHeightEnu,
   tilesetHeightBand,
 } from "@/lib/twin/geo-frame";
@@ -99,6 +101,8 @@ interface ViewerProps {
   onStatus: (status: string) => void;
   onAssetSelect?: (guid: string | null) => void;
   onWalkActive?: () => void;
+  /** Increment to force campus/tileset-aware spawn reset */
+  robotResetToken?: number;
 }
 
 const CAMPUS = { lon: -122.1339, lat: 37.42205, height: 280 };
@@ -165,6 +169,7 @@ export function CesiumViewer({
   onStatus,
   onAssetSelect,
   onWalkActive,
+  robotResetToken = 0,
 }: ViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cesiumRef = useRef<CesiumNS | null>(null);
@@ -199,6 +204,11 @@ export function CesiumViewer({
   const onStatusRef = useRef(onStatus);
   const onAssetSelectRef = useRef(onAssetSelect);
   const onWalkActiveRef = useRef(onWalkActive);
+  const robotResetTokenRef = useRef(robotResetToken);
+  const lastResetHandledRef = useRef(0);
+  const ensureRobotOnActiveTilesetRef = useRef<
+    ((opts?: { snapCamera?: boolean }) => boolean) | null
+  >(null);
   const onRobotProgressRef = useRef(onRobotProgress);
   const walkthroughRef = useRef(walkthroughMode);
   const robotPlayingRef = useRef(robot.playing);
@@ -225,6 +235,7 @@ export function CesiumViewer({
   onStatusRef.current = onStatus;
   onAssetSelectRef.current = onAssetSelect;
   onWalkActiveRef.current = onWalkActive;
+  robotResetTokenRef.current = robotResetToken;
   onRobotProgressRef.current = onRobotProgress;
   walkthroughRef.current = walkthroughMode;
   robotPlayingRef.current = robot.playing;
@@ -594,12 +605,27 @@ export function CesiumViewer({
         const t = toolRef.current;
 
         if (t === "robot-waypoints") {
+          // Stay on the external layer — bring robot here if still on campus
+          ensureRobotOnActiveTilesetRef.current?.({ snapCamera: true });
           const hit = pickSurfaceCartesian(Cesium, viewer, movement.position, {
             tileset: tilesetRef.current,
             exclude: robotHandle.current?.entities ?? [],
           });
           if (!hit) {
-            onStatusRef.current("Click a surface (tileset or ground) to place");
+            if (tilesetRef.current) {
+              onStatusRef.current(
+                "Click the external tileset mesh to place the robot"
+              );
+              reportTwinError({
+                source: "Click to move",
+                message:
+                  "No surface hit on the external tileset — click the mesh (not empty sky)",
+              });
+            } else {
+              onStatusRef.current(
+                "Click a surface (tileset or ground) to place"
+              );
+            }
             return;
           }
           const next = {
@@ -610,7 +636,7 @@ export function CesiumViewer({
           };
           robotPoseRef.current = next;
           robotHandle.current?.update(next);
-          // Instant chase snap onto the new surface — no sky tween
+          // Instant chase snap onto the new surface — no sky tween / no campus jump
           viewer.camera.cancelFlight?.();
           pauseWalkChase(0);
           clearUserCameraControl();
@@ -621,7 +647,8 @@ export function CesiumViewer({
               destination: Cesium.Cartesian3.fromDegrees(
                 hit.lon,
                 hit.lat,
-                hit.height + 40
+                hit.height + 40,
+                Cesium.Ellipsoid.WGS84
               ),
               orientation: {
                 heading: next.heading,
@@ -1453,6 +1480,55 @@ export function CesiumViewer({
     viewer.scene.requestRender();
   }, []);
 
+  /** If an external tileset is loaded and the robot is still on campus, move it onto the mesh. */
+  const ensureRobotOnActiveTileset = useCallback(
+    (opts?: { snapCamera?: boolean }): boolean => {
+      const Cesium = cesiumRef.current;
+      const viewer = viewerRef.current;
+      const tileset = tilesetRef.current;
+      if (!Cesium || !viewer || !tileset) return false;
+      const current = robotPoseRef.current;
+      if (isPoseOnTileset(Cesium, tileset, current)) return false;
+
+      const placed = poseAtTilesetCenter(Cesium, viewer, tileset, {
+        exclude: robotHandle.current?.entities ?? [],
+        heading: current.heading,
+      });
+      if (!placed) return false;
+
+      robotPoseRef.current = placed;
+      robotHandle.current?.update(placed);
+      pauseWalkChase(0);
+      clearUserCameraControl();
+      if (opts?.snapCamera !== false) {
+        if (walkthroughRef.current === "walk") {
+          applyWalkCamera(Cesium, viewer, placed);
+        } else {
+          viewer.camera.setView({
+            destination: Cesium.Cartesian3.fromDegrees(
+              placed.lon,
+              placed.lat,
+              placed.height + 35,
+              Cesium.Ellipsoid.WGS84
+            ),
+            orientation: {
+              heading: placed.heading,
+              pitch: Cesium.Math.toRadians(-32),
+              roll: 0,
+            },
+          });
+        }
+      }
+      onStatusRef.current(
+        `Robot brought to external tileset · ${placed.lat.toFixed(5)}, ${placed.lon.toFixed(5)}`
+      );
+      viewer.scene.requestRender();
+      return true;
+    },
+    []
+  );
+  ensureRobotOnActiveTilesetRef.current = ensureRobotOnActiveTileset;
+
   useEffect(() => {
     const Cesium = cesiumRef.current;
     const viewer = viewerRef.current;
@@ -1513,22 +1589,51 @@ export function CesiumViewer({
     };
   }, [robot.playing, sceneReadyTick, syncRobotPose]);
 
-  // Reset spawn when progress forced to 0 while paused (Reset flow)
+  // Explicit Reset only — do NOT snap to campus whenever progress happens to be 0
   useEffect(() => {
-    if (robot.playing) return;
-    if (robot.progress > 0.001) return;
+    if (!readyRef.current) return;
+    if (robotResetToken <= 0) return;
+    if (robotResetToken === lastResetHandledRef.current) return;
+    lastResetHandledRef.current = robotResetToken;
+
+    const Cesium = cesiumRef.current;
+    const viewer = viewerRef.current;
+    if (!Cesium || !viewer) return;
+
     const sim = platformSettingsRef.current?.simulation ?? DEFAULT_SIMULATION;
-    robotPoseRef.current = { ...spawnFromSettings(sim.spawn) };
     wanderRef.current = createWanderController({
       seed: 7,
       bounds: sim.bounds,
       turnRateRad: sim.turnRateRad,
       goalTimeoutSec: sim.goalTimeoutSec,
     });
-    syncRobotPose(false);
     wanderRef.current.reset();
+
+    // Prefer resetting onto the active external tileset, not campus
+    if (tilesetRef.current) {
+      const placed = poseAtTilesetCenter(Cesium, viewer, tilesetRef.current, {
+        exclude: robotHandle.current?.entities ?? [],
+        heading: (sim.spawn.headingDeg * Math.PI) / 180,
+      });
+      if (placed) {
+        robotPoseRef.current = placed;
+        robotHandle.current?.update(placed);
+        pauseWalkChase(0);
+        clearUserCameraControl();
+        if (walkthroughRef.current === "walk") {
+          applyWalkCamera(Cesium, viewer, placed);
+        }
+        onStatusRef.current("Reset — robot on external tileset");
+        viewer.scene.requestRender();
+        return;
+      }
+    }
+
+    robotPoseRef.current = { ...spawnFromSettings(sim.spawn) };
+    syncRobotPose(false);
     syncRobotPose(true);
-  }, [robot.progress, robot.playing, syncRobotPose]);
+    onStatusRef.current("Reset — robot on campus spawn");
+  }, [robotResetToken, syncRobotPose]);
 
   useEffect(() => {
     const Cesium = cesiumRef.current;
@@ -1536,7 +1641,8 @@ export function CesiumViewer({
     if (!Cesium || !viewer || !readyRef.current) return;
 
     if (walkthroughMode === "walk") {
-      // Stop free-roam; player drives robot with WASD
+      // Keep simulation on the external layer when a tileset is loaded
+      ensureRobotOnActiveTileset({ snapCamera: true });
       clearUserCameraControl();
       viewer.camera.cancelFlight?.();
       enterWalkCamera(Cesium, viewer, robotPoseRef.current);
@@ -1548,7 +1654,9 @@ export function CesiumViewer({
         canvas?.focus?.();
       }
       onStatusRef.current(
-        "Walk — WASD drive robot · drag orbit · wheel zoom"
+        tilesetRef.current
+          ? "Walk — WASD on external tileset · click to place stays here"
+          : "Walk — WASD drive robot · drag orbit · wheel zoom"
       );
       return;
     }
@@ -1562,7 +1670,24 @@ export function CesiumViewer({
           : "3rd person — chase camera on ATLAS-01"
       );
     }
-  }, [walkthroughMode, sceneReadyTick, syncRobotPose]);
+  }, [
+    walkthroughMode,
+    sceneReadyTick,
+    syncRobotPose,
+    ensureRobotOnActiveTileset,
+  ]);
+
+  // Click-to-move tool: immediately bring robot onto the loaded tileset
+  useEffect(() => {
+    if (!readyRef.current) return;
+    if (tool !== "robot-waypoints") return;
+    ensureRobotOnActiveTileset({ snapCamera: true });
+    onStatusRef.current(
+      tilesetRef.current
+        ? "Click the external tileset to place ATLAS-01"
+        : "Click the map to place ATLAS-01"
+    );
+  }, [tool, sceneReadyTick, ensureRobotOnActiveTileset]);
 
   useEffect(() => {
     const Cesium = cesiumRef.current;
