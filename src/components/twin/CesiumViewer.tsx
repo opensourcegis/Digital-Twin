@@ -1643,7 +1643,7 @@ export function CesiumViewer({
     if (!Cesium || !viewer || !readyRef.current) return;
 
     if (walkthroughMode === "walk") {
-      const placing = toolRef.current === "robot-waypoints";
+      const placing = tool === "robot-waypoints";
 
       // Quietly move robot onto tileset data without yanking the camera
       ensureRobotOnActiveTileset({ snapCamera: false });
