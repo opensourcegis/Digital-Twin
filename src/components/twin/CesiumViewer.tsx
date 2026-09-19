@@ -36,9 +36,20 @@ import {
 } from "@/lib/twin/layer-viewer-state";
 import {
   createAtlasRobot,
-  pathHeadingRad,
   type AtlasRobotHandle,
 } from "@/lib/twin/robot-model";
+import {
+  createWanderController,
+  poseToCartesian,
+  ROBOT_SPAWN,
+  type RobotPose,
+} from "@/lib/twin/robot-sim";
+import {
+  removePoleLight,
+  startPoleLightFlickerLoop,
+  syncNaturalPoleLight,
+  type PoleLightCaches,
+} from "@/lib/twin/pole-lights";
 import type { Alert, WalkthroughMode } from "@/lib/twin/types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -137,14 +148,23 @@ export function CesiumViewer({
   const drawLinePoints = useRef<any[]>([]);
   const drawPreview = useRef<any>(null);
   const poleEntities = useRef<Map<string, any>>(new Map());
-  const lightHalos = useRef<Map<string, any>>(new Map());
+  const poleLightCaches = useRef<PoleLightCaches>({
+    poles: new Map(),
+    lamps: new Map(),
+    pools: new Map(),
+    hotspots: new Map(),
+    cones: new Map(),
+  });
   const robotHandle = useRef<AtlasRobotHandle | null>(null);
-  const robotPath = useRef<{ lon: number; lat: number; height: number }[]>([]);
+  const robotPoseRef = useRef<RobotPose>({ ...ROBOT_SPAWN });
+  const wanderRef = useRef(createWanderController(7));
+  const stopFlickerRef = useRef<(() => void) | null>(null);
   const handlerRef = useRef<any>(null);
   const animFrame = useRef<number | null>(null);
   const polesRef = useRef(poles);
   const toolRef = useRef(tool);
   const poleLightsRef = useRef(poleLightsOn);
+  const timeOfDayRef = useRef(timeOfDay);
   const onPolesChangeRef = useRef(onPolesChange);
   const onMeasureRef = useRef(onMeasure);
   const onStatusRef = useRef(onStatus);
@@ -154,7 +174,6 @@ export function CesiumViewer({
   const walkthroughRef = useRef(walkthroughMode);
   const robotPlayingRef = useRef(robot.playing);
   const robotSpeedRef = useRef(robot.speed);
-  const robotProgressRef = useRef(robot.progress);
   const symbologyRef = useRef(symbology);
   const alertEntities = useRef<any[]>([]);
   const customLayerEntities = useRef<Map<string, any[]>>(new Map());
@@ -168,6 +187,7 @@ export function CesiumViewer({
   polesRef.current = poles;
   toolRef.current = tool;
   poleLightsRef.current = poleLightsOn;
+  timeOfDayRef.current = timeOfDay;
   onPolesChangeRef.current = onPolesChange;
   onMeasureRef.current = onMeasure;
   onStatusRef.current = onStatus;
@@ -177,7 +197,6 @@ export function CesiumViewer({
   walkthroughRef.current = walkthroughMode;
   robotPlayingRef.current = robot.playing;
   robotSpeedRef.current = robot.speed;
-  robotProgressRef.current = robot.progress;
   symbologyRef.current = symbology;
   layersRef.current = layers;
 
@@ -243,109 +262,14 @@ export function CesiumViewer({
 
   const syncPoleEntity = useCallback(
     (Cesium: CesiumNS, viewer: any, pole: PlacedPole) => {
-      const lit = pole.lightsOn && poleLightsRef.current;
-      const shaftLen = 9;
-      const position = Cesium.Cartesian3.fromDegrees(
-        pole.lon,
-        pole.lat,
-        pole.height + shaftLen / 2
+      syncNaturalPoleLight(
+        Cesium,
+        viewer,
+        pole,
+        timeOfDayRef.current,
+        poleLightsRef.current,
+        poleLightCaches.current
       );
-      const tip = Cesium.Cartesian3.fromDegrees(
-        pole.lon,
-        pole.lat,
-        pole.height + shaftLen
-      );
-
-      let entity = poleEntities.current.get(pole.id);
-      if (!entity) {
-        entity = viewer.entities.add({
-          id: pole.id,
-          position,
-          name: "Electric pole",
-          cylinder: {
-            length: shaftLen,
-            topRadius: 0.18,
-            bottomRadius: 0.28,
-            material: Cesium.Color.fromCssColorString("#8b93a7"),
-            slices: 12,
-          },
-          point: {
-            pixelSize: lit ? 14 : 6,
-            color: lit
-              ? Cesium.Color.fromCssColorString("#ffe566")
-              : Cesium.Color.fromCssColorString("#c5cad6"),
-            outlineColor: Cesium.Color.BLACK,
-            outlineWidth: 1,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          },
-          properties: {
-            kind: "pole",
-            lightsOn: pole.lightsOn,
-          },
-        });
-        poleEntities.current.set(pole.id, entity);
-      } else {
-        entity.position = new Cesium.ConstantPositionProperty(position);
-        if (entity.point) {
-          entity.point.pixelSize = new Cesium.ConstantProperty(lit ? 14 : 6);
-          entity.point.color = new Cesium.ConstantProperty(
-            lit
-              ? Cesium.Color.fromCssColorString("#ffe566")
-              : Cesium.Color.fromCssColorString("#c5cad6")
-          );
-        }
-      }
-
-      const lampId = `${pole.id}-lamp`;
-      let lamp = viewer.entities.getById(lampId);
-      if (!lamp) {
-        lamp = viewer.entities.add({
-          id: lampId,
-          position: tip,
-          ellipsoid: {
-            radii: new Cesium.Cartesian3(0.35, 0.35, 0.28),
-            material: new Cesium.ColorMaterialProperty(
-              lit
-                ? Cesium.Color.fromCssColorString("#fff3a8").withAlpha(0.95)
-                : Cesium.Color.fromCssColorString("#9aa3b5")
-            ),
-          },
-        });
-      } else {
-        lamp.position = new Cesium.ConstantPositionProperty(tip);
-        if (lamp.ellipsoid) {
-          lamp.ellipsoid.material = new Cesium.ColorMaterialProperty(
-            lit
-              ? Cesium.Color.fromCssColorString("#fff3a8").withAlpha(0.95)
-              : Cesium.Color.fromCssColorString("#9aa3b5")
-          );
-        }
-      }
-
-      const haloId = `${pole.id}-halo`;
-      let halo = lightHalos.current.get(pole.id) || viewer.entities.getById(haloId);
-      if (!halo) {
-        halo = viewer.entities.add({
-          id: haloId,
-          position: tip,
-          ellipsoid: {
-            radii: new Cesium.Cartesian3(12, 12, 8),
-            material: Cesium.Color.fromCssColorString("#ffd978").withAlpha(
-              lit ? 0.18 : 0
-            ),
-          },
-          show: lit,
-        });
-        lightHalos.current.set(pole.id, halo);
-      } else {
-        halo.position = new Cesium.ConstantPositionProperty(tip);
-        halo.show = lit;
-        if (halo.ellipsoid) {
-          halo.ellipsoid.material = new Cesium.ColorMaterialProperty(
-            Cesium.Color.fromCssColorString("#ffd978").withAlpha(lit ? 0.18 : 0)
-          );
-        }
-      }
     },
     []
   );
@@ -356,22 +280,18 @@ export function CesiumViewer({
     if (!Cesium || !viewer) return;
 
     const keep = new Set(polesRef.current.map((p) => p.id));
-    for (const [id, entity] of poleEntities.current) {
+    for (const id of [...poleLightCaches.current.poles.keys()]) {
       if (!keep.has(id)) {
-        viewer.entities.remove(entity);
-        const lamp = viewer.entities.getById(`${id}-lamp`);
-        if (lamp) viewer.entities.remove(lamp);
+        removePoleLight(viewer, id, poleLightCaches.current);
         poleEntities.current.delete(id);
-        const halo =
-          lightHalos.current.get(id) || viewer.entities.getById(`${id}-halo`);
-        if (halo) {
-          viewer.entities.remove(halo);
-          lightHalos.current.delete(id);
-        }
       }
     }
     for (const pole of polesRef.current) {
       syncPoleEntity(Cesium, viewer, pole);
+      poleEntities.current.set(
+        pole.id,
+        poleLightCaches.current.poles.get(pole.id)
+      );
     }
     viewer.scene.requestRender();
   }, [syncPoleEntity]);
@@ -621,28 +541,12 @@ export function CesiumViewer({
       onPolesChangeRef.current(seed);
 
       try {
-        const res = await fetch("/demo/robot-path.json");
-        const data = await res.json();
-        robotPath.current = data.waypoints;
-        const positions = data.waypoints.map(
-          (w: { lon: number; lat: number; height: number }) =>
-            Cesium.Cartesian3.fromDegrees(w.lon, w.lat, w.height)
-        );
-        viewer.entities.add({
-          id: "robot-path-line",
-          polyline: {
-            positions,
-            width: 4,
-            material: new Cesium.PolylineGlowMaterialProperty({
-              glowPower: 0.25,
-              color: Cesium.Color.fromCssColorString("#f59e0b"),
-            }),
-          },
-        });
-        const start = data.waypoints[0];
-        robotHandle.current = createAtlasRobot(Cesium, viewer, start);
-      } catch {
-        onStatusRef.current("Robot path unavailable");
+        robotPoseRef.current = { ...ROBOT_SPAWN };
+        wanderRef.current = createWanderController(7);
+        robotHandle.current = createAtlasRobot(Cesium, viewer, ROBOT_SPAWN);
+      } catch (err) {
+        console.warn(err);
+        onStatusRef.current("Robot unavailable");
       }
 
       const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
@@ -965,6 +869,10 @@ export function CesiumViewer({
       } catch (err) {
         console.warn("Keyboard walk attach failed", err);
       }
+      stopFlickerRef.current = startPoleLightFlickerLoop(
+        viewer,
+        () => poleLightsRef.current && timeOfDayRef.current === "night"
+      );
       onStatusRef.current("Campus twin ready");
       viewer.scene.requestRender();
     }
@@ -981,6 +889,8 @@ export function CesiumViewer({
       detachCameraControlsRef.current?.();
       detachCameraControlsRef.current = null;
       if (animFrame.current) cancelAnimationFrame(animFrame.current);
+      stopFlickerRef.current?.();
+      stopFlickerRef.current = null;
       robotHandle.current?.destroy();
       robotHandle.current = null;
       handlerRef.current?.destroy();
@@ -1036,18 +946,25 @@ export function CesiumViewer({
         needsRender = true;
       }
       if (layer.builtInKey === "robot-path" && delta.visibility) {
-        const line = viewer.entities.getById("robot-path-line");
-        if (line) line.show = layer.visible;
         robotHandle.current?.setShow(layer.visible);
         needsRender = true;
       }
       if (layer.builtInKey === "poles" && delta.visibility) {
-        for (const e of poleEntities.current.values()) e.show = layer.visible;
-        for (const pole of polesRef.current) {
-          const lamp = viewer.entities.getById(`${pole.id}-lamp`);
+        const caches = poleLightCaches.current;
+        for (const id of caches.poles.keys()) {
+          const poleOn =
+            polesRef.current.find((p) => p.id === id)?.lightsOn !== false &&
+            poleLightsRef.current;
+          const shaft = caches.poles.get(id);
+          const lamp = caches.lamps.get(id);
+          const pool = caches.pools.get(id);
+          const hot = caches.hotspots.get(id);
+          const cone = caches.cones.get(id);
+          if (shaft) shaft.show = layer.visible;
           if (lamp) lamp.show = layer.visible;
-          const halo = viewer.entities.getById(`${pole.id}-halo`);
-          if (halo) halo.show = layer.visible && poleLightsRef.current;
+          if (pool) pool.show = layer.visible && poleOn;
+          if (hot) hot.show = layer.visible && poleOn;
+          if (cone) cone.show = layer.visible && poleOn;
         }
         needsRender = true;
       }
@@ -1195,35 +1112,30 @@ export function CesiumViewer({
     config.cesiumIonToken,
   ]);
 
-  const syncRobotPose = useCallback(
-    (progress: number, followCamera: boolean) => {
-      const Cesium = cesiumRef.current;
-      const viewer = viewerRef.current;
-      const handle = robotHandle.current;
-      const path = robotPath.current;
-      if (!Cesium || !viewer || !handle || path.length < 2) return;
-      const pos = interpolatePath(Cesium, path, progress);
-      const heading = pathHeadingRad(path, progress);
-      handle.update(pos, heading);
-      if (
-        followCamera &&
-        !isUserControllingCamera() &&
-        walkthroughRef.current !== "off" &&
-        walkthroughRef.current !== "walk"
-      ) {
-        updateWalkthroughCamera(
-          Cesium,
-          viewer,
-          walkthroughRef.current,
-          pos,
-          path,
-          progress
-        );
-      }
-      viewer.scene.requestRender();
-    },
-    []
-  );
+  const syncRobotPose = useCallback((followCamera: boolean) => {
+    const Cesium = cesiumRef.current;
+    const viewer = viewerRef.current;
+    const handle = robotHandle.current;
+    if (!Cesium || !viewer || !handle) return;
+    const pose = robotPoseRef.current;
+    handle.update(pose);
+    const pos = poseToCartesian(Cesium, pose);
+    if (
+      followCamera &&
+      !isUserControllingCamera() &&
+      walkthroughRef.current !== "off" &&
+      walkthroughRef.current !== "walk"
+    ) {
+      updateWalkthroughCamera(
+        Cesium,
+        viewer,
+        walkthroughRef.current,
+        pos,
+        pose.heading
+      );
+    }
+    viewer.scene.requestRender();
+  }, []);
 
   useEffect(() => {
     const Cesium = cesiumRef.current;
@@ -1235,29 +1147,32 @@ export function CesiumViewer({
       animFrame.current = null;
     }
 
-    // Parked / paused: snap once. Do NOT depend on progress while playing —
-    // that previously re-started the RAF loop every frame and broke walkthrough.
-    if (!robot.playing || robotPath.current.length < 2) {
-      syncRobotPose(robot.progress, true);
+    if (!robot.playing) {
+      syncRobotPose(true);
       return;
     }
 
     clearUserCameraControl();
     let last = performance.now();
-    let progress = robotProgressRef.current;
     let lastEmit = 0;
+    let traveled = 0;
 
     const tick = (now: number) => {
       if (!robotPlayingRef.current) return;
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      progress = (progress + dt * robotSpeedRef.current * 0.05) % 1;
-      robotProgressRef.current = progress;
-      syncRobotPose(progress, true);
-      // Throttle React state updates so the loop isn't torn down by re-renders
-      if (now - lastEmit > 80) {
+      const speedMps = 2.8 * robotSpeedRef.current;
+      robotPoseRef.current = wanderRef.current.step(
+        robotPoseRef.current,
+        dt,
+        speedMps
+      );
+      traveled += speedMps * dt;
+      syncRobotPose(true);
+      if (now - lastEmit > 100) {
         lastEmit = now;
-        onRobotProgressRef.current(progress);
+        // Progress is a soft 0–1 cycle for telemetry UI (distance-based, not a route)
+        onRobotProgressRef.current((traveled % 400) / 400);
       }
       animFrame.current = requestAnimationFrame(tick);
     };
@@ -1266,14 +1181,16 @@ export function CesiumViewer({
     return () => {
       if (animFrame.current) cancelAnimationFrame(animFrame.current);
       animFrame.current = null;
-      onRobotProgressRef.current(robotProgressRef.current);
     };
   }, [robot.playing, syncRobotPose]);
 
-  // Progress reset / scrub while paused
+  // Reset spawn when progress forced to 0 (Reset button)
   useEffect(() => {
     if (robot.playing) return;
-    syncRobotPose(robot.progress, true);
+    if (robot.progress > 0.001) return;
+    robotPoseRef.current = { ...ROBOT_SPAWN };
+    wanderRef.current.reset();
+    syncRobotPose(true);
   }, [robot.progress, robot.playing, syncRobotPose]);
 
   useEffect(() => {
@@ -1292,7 +1209,7 @@ export function CesiumViewer({
 
     if (walkthroughMode === "first" || walkthroughMode === "third") {
       clearUserCameraControl();
-      syncRobotPose(robotProgressRef.current, true);
+      syncRobotPose(true);
       onStatusRef.current(
         walkthroughMode === "first"
           ? "1st person — following ATLAS-01"
@@ -1366,25 +1283,3 @@ export function CesiumViewer({
   );
 }
 
-function interpolatePath(
-  Cesium: CesiumNS,
-  path: { lon: number; lat: number; height: number }[],
-  t: number
-) {
-  if (!path || path.length < 2) {
-    return Cesium.Cartesian3.fromDegrees(CAMPUS.lon, CAMPUS.lat, 1.2);
-  }
-  const total = path.length - 1;
-  const clamped = Math.min(Math.max(t, 0), 0.9999);
-  const x = clamped * total;
-  const i = Math.min(total - 1, Math.floor(x));
-  const local = x - i;
-  const a = path[i];
-  const b = path[i + 1] ?? path[i];
-  if (!a || !b) {
-    return Cesium.Cartesian3.fromDegrees(CAMPUS.lon, CAMPUS.lat, 1.2);
-  }
-  const A = Cesium.Cartesian3.fromDegrees(a.lon, a.lat, a.height);
-  const B = Cesium.Cartesian3.fromDegrees(b.lon, b.lat, b.height);
-  return Cesium.Cartesian3.lerp(A, B, local, new Cesium.Cartesian3());
-}

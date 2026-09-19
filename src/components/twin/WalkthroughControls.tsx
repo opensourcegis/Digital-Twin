@@ -75,8 +75,8 @@ export function WalkthroughControls({
           : mode === "off"
             ? "Orbit freely, or arm Chase/Cab then start ATLAS-01 patrol."
             : robotPlaying
-              ? "Camera locked to ATLAS-01 on the live patrol route."
-              : "Press Play on patrol to begin camera follow."}
+              ? "Camera locked to ATLAS-01 on free campus roam."
+              : "Press Start simulation to begin camera follow."}
       </p>
       <div className="mt-3 grid grid-cols-4 gap-1">
         {MODES.map(({ id, label, Icon }) => (

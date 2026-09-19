@@ -246,23 +246,13 @@ export function updateWalkthroughCamera(
   viewer: any,
   mode: "off" | "first" | "third" | "walk",
   robotPos: any,
-  path: { lon: number; lat: number; height: number }[],
-  progress: number
+  headingRad: number
 ) {
-  if (mode === "off" || mode === "walk" || !robotPos || path.length < 2) return;
+  if (mode === "off" || mode === "walk" || !robotPos) return;
 
-  const total = path.length - 1;
-  const x = Math.min(Math.max(progress, 0), 0.9999) * total;
-  const i = Math.min(total - 1, Math.floor(x));
-  const a = path[i];
-  const b = path[i + 1] ?? path[i];
-  if (!a || !b) return;
-
-  const heading = Math.atan2(b.lon - a.lon, b.lat - a.lat);
-
-  // Offset in east-north-up meters from the robot (stable, no HPR-frame guesswork).
-  const backM = mode === "first" ? 0.45 : 16;
-  const upM = mode === "first" ? 1.55 : 8;
+  const heading = headingRad;
+  const backM = mode === "first" ? 0.55 : 16;
+  const upM = mode === "first" ? 1.65 : 8;
   const enu = Cesium.Transforms.eastNorthUpToFixedFrame(robotPos);
   const local = new Cesium.Cartesian3(
     -Math.sin(heading) * backM,

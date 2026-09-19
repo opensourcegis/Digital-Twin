@@ -348,7 +348,7 @@ export function TwinWorkspace() {
             <div className="text-xs">
               <p className="font-medium text-slate-200">Site lighting</p>
               <p className="text-slate-500">
-                {poleLightsOn ? "On" : "Off"} · {poles.length} poles
+                {poleLightsOn ? "Natural" : "Off"} · {poles.length} poles
               </p>
             </div>
             <Switch
@@ -367,8 +367,8 @@ export function TwinWorkspace() {
             {twin.walkthroughMode === "walk"
               ? "Walkthrough · WASD move · drag look"
               : twin.walkthroughMode === "first"
-                ? `Cab view · ATLAS-01${robot.playing ? " · on patrol" : ""}`
-                : `Chase cam · ATLAS-01${robot.playing ? " · on patrol" : ""}`}
+                ? `Cab view · ATLAS-01${robot.playing ? " · roaming" : ""}`
+                : `Chase cam · ATLAS-01${robot.playing ? " · roaming" : ""}`}
           </div>
         </div>
       )}
@@ -546,12 +546,12 @@ export function TwinWorkspace() {
                             !robot.playing && "live-dot--off"
                           )}
                         />
-                        {robot.playing ? "Patrol" : "Standby"}
+                        {robot.playing ? "Roaming" : "Standby"}
                       </span>
                     </div>
                     <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-                      Autonomous AMR on the campus route. Slows near critical
-                      alerts. Battery{" "}
+                      Free campus simulation — no fixed route. Picks live goals
+                      and steers across site. Battery{" "}
                       {twin.robotTelemetry?.batteryPct?.toFixed(0) ?? "—"}%.
                     </p>
                   </div>
@@ -566,7 +566,7 @@ export function TwinWorkspace() {
                       ) : (
                         <Play className="h-4 w-4" />
                       )}
-                      {robot.playing ? "Pause" : "Start patrol"}
+                      {robot.playing ? "Pause" : "Start simulation"}
                     </Button>
                     <Button
                       variant="secondary"
@@ -582,7 +582,7 @@ export function TwinWorkspace() {
                     </Button>
                   </div>
                   <label className="block text-xs text-slate-400">
-                    Patrol speed
+                    Simulation speed
                     <input
                       type="range"
                       min={0.35}
@@ -598,14 +598,9 @@ export function TwinWorkspace() {
                       className="mt-2 w-full accent-teal-400"
                     />
                   </label>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-amber-400 to-orange-500 transition-[width] duration-100"
-                      style={{ width: `${robot.progress * 100}%` }}
-                    />
-                  </div>
                   <p className="text-xs text-slate-500">
-                    Route progress {(robot.progress * 100).toFixed(0)}%
+                    Use Chase / Cab to follow the unit. Amber marker stays
+                    visible from orbit.
                   </p>
                 </>
               )}

@@ -189,7 +189,7 @@
       "guidBindings": [
         "robot-atlas-01-9f0e-5c7d-3b2a"
       ],
-      "dataSource": "/demo/robot-path.json",
+      "dataSource": null,
       "style": {
         "fillColor": "#fbbf24",
         "strokeColor": "#f59e0b",
@@ -198,8 +198,8 @@
       },
       "createdAt": "2026-09-18T18:28:51.350Z",
       "updatedAt": "2026-09-18T18:28:51.350Z",
-      "name": "ATLAS-01 patrol",
-      "description": "Robot body + patrol polyline",
+      "name": "ATLAS-01 robot",
+      "description": "AMR unit — free roam simulation (no fixed route)",
       "category": "robot-patrol",
       "enabled": true,
       "visible": true,
