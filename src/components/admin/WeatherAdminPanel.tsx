@@ -71,6 +71,7 @@ export function WeatherAdminPanel() {
           <h2 className="font-display text-lg text-white">Live weather API</h2>
           <p className="mt-1 text-xs leading-relaxed text-slate-400">
             Open-Meteo (or compatible) forecast URL drives fog, haze, rain overlay,
+            cloud cover lighting, and wind simulation scaled by wind speed.
             and optional day/night on the twin simulation view.
           </p>
         </div>

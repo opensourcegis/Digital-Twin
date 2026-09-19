@@ -60,7 +60,11 @@ import type {
 } from "@/lib/types";
 import type { WalkthroughMode } from "@/lib/twin/types";
 import { zoomCamera } from "@/lib/twin/camera-controls";
-import { weatherWetness } from "@/lib/weather/apply-weather";
+import {
+  weatherWetness,
+  weatherWindFactor,
+  weatherWindCssAngle,
+} from "@/lib/weather/apply-weather";
 import type { PlatformSettings } from "@/lib/platform/types";
 import {
   DEFAULT_GIS,
@@ -112,7 +116,7 @@ export function TwinWorkspace() {
   const [tilesetUrl, setTilesetUrl] = useState("");
   const [activeScene, setActiveScene] = useState<"demo" | "tiles">("demo");
   const [robot, setRobot] = useState<RobotState>({
-    playing: false,
+    playing: true,
     progress: 0,
     speed: 1,
   });
@@ -127,6 +131,10 @@ export function TwinWorkspace() {
     1000;
   const liveWeather = useWeather(true, weatherPollMs);
   const wetness = weatherWetness(liveWeather.weather);
+  const windFactor = weatherWindFactor(liveWeather.weather);
+  const windAngle = weatherWindCssAngle(liveWeather.weather);
+  const windRad = (windAngle * Math.PI) / 180;
+  const windDuration = Math.max(0.35, 1.8 - windFactor * 1.35);
   const sim = platform?.simulation ?? DEFAULT_SIMULATION;
   const informatics = platform?.informatics ?? DEFAULT_INFORMATICS;
   const gis = platform?.gis ?? DEFAULT_GIS;
@@ -162,7 +170,15 @@ export function TwinWorkspace() {
         !walkthroughDefaultApplied.current &&
         settings.simulation.defaultWalkthroughMode !== "off"
       ) {
-        twin.setWalkthroughMode(settings.simulation.defaultWalkthroughMode);
+        const mode = settings.simulation.defaultWalkthroughMode;
+        twin.setWalkthroughMode(mode);
+        if (mode === "first" || mode === "third") {
+          setRobot((r) => ({
+            ...r,
+            playing: true,
+            speed: Math.max(r.speed, 1),
+          }));
+        }
         walkthroughDefaultApplied.current = true;
       }
     },
@@ -433,6 +449,25 @@ export function TwinWorkspace() {
         }}
         aria-hidden
       />
+      <div
+        className={cn(
+          "pointer-events-none absolute inset-0 z-[1] twin-wind",
+          windFactor > 0.08 && "twin-wind--active"
+        )}
+        style={
+          {
+            ["--wind-opacity" as string]: Math.min(
+              0.55,
+              0.1 + windFactor * 0.5
+            ),
+            ["--wind-angle" as string]: `${windAngle}deg`,
+            ["--wind-duration" as string]: `${windDuration}s`,
+            ["--wind-drift-x" as string]: `${Math.round(Math.cos(windRad) * 120)}px`,
+            ["--wind-drift-y" as string]: `${Math.round(Math.sin(windRad) * 120)}px`,
+          } as Record<string, string>
+        }
+        aria-hidden
+      />
 
       <CesiumViewer
         config={config}
@@ -557,8 +592,8 @@ export function TwinWorkspace() {
             {twin.walkthroughMode === "walk"
               ? "Walk · WASD · drag look"
               : twin.walkthroughMode === "first"
-                ? `Cab · ${sim.robotName}${robot.playing ? " · roaming" : ""}`
-                : `Chase · ${sim.robotName}${robot.playing ? " · roaming" : ""}`}
+                ? `Cab · ${sim.robotName}${robot.playing ? " · moving" : ""}`
+                : `Chase · ${sim.robotName}${robot.playing ? " · moving" : ""}`}
           </div>
         </div>
       )}
@@ -679,12 +714,11 @@ export function TwinWorkspace() {
                               !robot.playing && "live-dot--off"
                             )}
                           />
-                          {robot.playing ? "Roaming" : "Standby"}
+                          {robot.playing ? "Moving" : "Paused"}
                         </span>
                       </div>
                       <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-                        Free-roam simulation — no fixed route. Battery{" "}
-                        {twin.robotTelemetry?.batteryPct?.toFixed(0) ?? "—"}%.
+                        Continuous free-roam — like a game character on campus.
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -698,23 +732,26 @@ export function TwinWorkspace() {
                         ) : (
                           <Play className="h-4 w-4" />
                         )}
-                        {robot.playing ? "Pause" : "Start simulation"}
+                        {robot.playing ? "Pause" : "Resume"}
                       </Button>
                       <Button
                         variant="secondary"
-                        onClick={() =>
+                        onClick={() => {
                           setRobot((r) => ({
                             ...r,
                             playing: false,
                             progress: 0,
-                          }))
-                        }
+                          }));
+                          queueMicrotask(() =>
+                            setRobot((r) => ({ ...r, playing: true }))
+                          );
+                        }}
                       >
                         Reset
                       </Button>
                     </div>
                     <label className="block text-xs text-slate-400">
-                      Simulation speed
+                      Move speed
                       <input
                         type="range"
                         min={0.35}

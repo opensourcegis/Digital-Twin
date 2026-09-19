@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import type {
   ActiveTool,
   MeasureResult,
@@ -58,6 +58,7 @@ import type { SceneWeather } from "@/lib/weather/types";
 import {
   applyTimeOfDay,
   applyWeatherToScene,
+  weatherWindFactor,
 } from "@/lib/weather/apply-weather";
 import type { PlatformSettings } from "@/lib/platform/types";
 import { DEFAULT_GIS, DEFAULT_SIMULATION } from "@/lib/platform/types";
@@ -198,6 +199,8 @@ export function CesiumViewer({
   const customLayerEntities = useRef<Map<string, any[]>>(new Map());
   const layersRef = useRef(layers);
   const readyRef = useRef(false);
+  const [sceneReadyTick, setSceneReadyTick] = useState(0);
+  const windActiveRef = useRef(false);
   const detachKeyboardWalkRef = useRef<(() => void) | null>(null);
   const detachCameraControlsRef = useRef<(() => void) | null>(null);
   const layerRenderStateRef = useRef<Map<string, LayerRenderState>>(new Map());
@@ -859,6 +862,7 @@ export function CesiumViewer({
       }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
 
       readyRef.current = true;
+      if (!destroyed) setSceneReadyTick((n) => n + 1);
       try {
         detachCameraControlsRef.current = attachCameraControls(viewer, Cesium);
       } catch (err) {
@@ -911,6 +915,11 @@ export function CesiumViewer({
     const viewer = viewerRef.current;
     if (!Cesium || !viewer) return;
     applyWeatherToScene(Cesium, viewer, weather ?? null, timeOfDay);
+    const windOn = weatherWindFactor(weather ?? null) > 0.08;
+    windActiveRef.current = windOn;
+    if (windOn || robotPlayingRef.current) {
+      viewer.scene.requestRenderMode = false;
+    }
     rebuildPoles();
   }, [timeOfDay, weather, rebuildPoles]);
 
@@ -1177,13 +1186,14 @@ export function CesiumViewer({
     }
 
     if (!robot.playing) {
-      // Restore render-on-demand when idle
-      viewer.scene.requestRenderMode = true;
+      if (!windActiveRef.current) {
+        viewer.scene.requestRenderMode = true;
+      }
       syncRobotPose(true);
       return;
     }
 
-    // Continuous renders while robot roams so motion stays smooth
+    // Continuous renders while robot moves so motion stays smooth
     viewer.scene.requestRenderMode = false;
     clearUserCameraControl();
     let last = performance.now();
@@ -1215,13 +1225,17 @@ export function CesiumViewer({
     return () => {
       if (animFrame.current) cancelAnimationFrame(animFrame.current);
       animFrame.current = null;
-      if (viewerRef.current) {
+      if (
+        viewerRef.current &&
+        !windActiveRef.current &&
+        !robotPlayingRef.current
+      ) {
         viewerRef.current.scene.requestRenderMode = true;
       }
     };
-  }, [robot.playing, syncRobotPose]);
+  }, [robot.playing, sceneReadyTick, syncRobotPose]);
 
-  // Reset spawn when progress forced to 0 (Reset button)
+  // Reset spawn when progress forced to 0 while paused (Reset flow)
   useEffect(() => {
     if (robot.playing) return;
     if (robot.progress > 0.001) return;

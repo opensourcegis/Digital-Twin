@@ -65,7 +65,7 @@ export function WalkthroughControls({
                 : "bg-amber-500/15 text-amber-200"
             )}
           >
-            {robotPlaying ? "Roaming" : "Paused"}
+            {robotPlaying ? "Moving" : "Paused"}
           </span>
         )}
       </div>
@@ -73,10 +73,10 @@ export function WalkthroughControls({
         {mode === "walk"
           ? "Walk the campus with WASD or arrow keys. Drag to look."
           : mode === "off"
-            ? "Orbit freely, or pick Chase/Cab to follow ATLAS-01 on free roam."
+            ? "Orbit freely, or pick Chase/Cab to follow ATLAS-01 while it moves."
             : robotPlaying
-              ? "Camera locked to ATLAS-01 — robot is roaming."
-              : "Simulation paused — press Start simulation to resume roam."}
+              ? "Camera locked to ATLAS-01 — robot is moving."
+              : "Paused — press Resume to keep moving."}
       </p>
       <div className="mt-3 grid grid-cols-4 gap-1">
         {MODES.map(({ id, label, Icon }) => (

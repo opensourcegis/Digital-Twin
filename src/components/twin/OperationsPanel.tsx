@@ -112,6 +112,20 @@ export function OperationsPanel({
                     ? ` · ${Math.round(weather.windDirectionDeg)}°`
                     : ""}
                 </p>
+                {weather?.windSpeedMps != null && (
+                  <p className="mt-0.5 text-[10px] text-slate-500">
+                    {weather.windSpeedMps < 2
+                      ? "Calm"
+                      : weather.windSpeedMps < 5
+                        ? "Light breeze"
+                        : weather.windSpeedMps < 10
+                          ? "Moderate"
+                          : weather.windSpeedMps < 15
+                            ? "Strong"
+                            : "Gale"}{" "}
+                    · drives scene wind
+                  </p>
+                )}
               </div>
               <div>
                 <p className="text-slate-500">Clouds</p>
