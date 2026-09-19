@@ -35,7 +35,7 @@ export DATABASE_URL=postgres://USER:PASS@127.0.0.1:5432/twinbench
 npm run db:migrate
 ```
 
-Without `DATABASE_URL`, APIs still work in memory (simulator + in-process scenario/analytics). On Netlify Database, PostGIS/Timescale extensions may be unavailable — migration falls back to plain Postgres indexes.
+Without `DATABASE_URL`, APIs still work in memory (simulator + in-process scenario/analytics). Plain Postgres works; PostGIS/Timescale are optional — migration falls back when extensions are missing.
 
 | Phase | API |
 | --- | --- |
