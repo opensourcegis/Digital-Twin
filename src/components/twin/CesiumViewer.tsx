@@ -1371,6 +1371,7 @@ export function CesiumViewer({
       timeOfDay,
       tilesetStylePreset
     );
+    viewer.scene.requestRender();
     // Wind particles disabled — don't force continuous render for weather alone
     windActiveRef.current = false;
     if (robotPlayingRef.current) {
