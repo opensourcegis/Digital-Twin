@@ -154,7 +154,7 @@ export async function zoomCameraToLayer(
       return {
         ok: false,
         reason:
-          "External tileset not loaded yet. Use Focus again after Sample load, or paste a tileset URL in Tiles.",
+          "External tileset not loaded yet. Open Tiles → Sample or Load a tileset.json URL, then Focus again.",
       };
     }
     try {

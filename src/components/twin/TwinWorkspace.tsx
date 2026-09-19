@@ -429,20 +429,33 @@ export function TwinWorkspace() {
         layer.dataSource?.trim() ||
         tilesetUrl.trim() ||
         SAMPLE_TILESET_URL;
+      const alreadySameUrl =
+        Boolean(tilesetUrl.trim()) &&
+        tilesetUrl.trim() === url.trim();
+
       pendingTilesetZoom.current = target;
-      // Always remount so a prior failed load / CORS miss recovers on Focus
+      setActiveScene("tiles");
+
+      if (alreadySameUrl) {
+        // Don't remount — just zoom (viewer waits up to ~30s if still loading)
+        setStatus(`Focusing ${layer.label}…`);
+        requestZoomToLayer(target);
+        return;
+      }
+
       commitTilesetUrl(url);
       setStatus(
         tilesetUrl.trim()
-          ? `Reloading & focusing ${layer.label}…`
+          ? `Loading & focusing ${layer.label}…`
           : "Loading sample tileset, then zooming…"
       );
+      // Fallback only — prefer twin-tileset-ready; give load time
       window.setTimeout(() => {
         if (pendingTilesetZoom.current === target) {
           pendingTilesetZoom.current = null;
           requestZoomToLayer(target);
         }
-      }, 12_000);
+      }, 45_000);
       return;
     }
 
@@ -1103,8 +1116,8 @@ export function TwinWorkspace() {
                     </div>
                     <p className="text-[10px] text-slate-500">
                       Paste a public https://…/tileset.json then Load (Enter
-                      works). External hosts are fetched via a same-origin
-                      proxy when CORS is missing.
+                      works). Loads directly; a same-origin proxy is used only
+                      if the host blocks CORS.
                     </p>
                     <p className="text-[10px] text-slate-500">
                       {SANDCASTLE_PRESET_NOTE}

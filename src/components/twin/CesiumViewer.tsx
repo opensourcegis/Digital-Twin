@@ -34,7 +34,8 @@ import {
   attachTilesetErrorHandlers,
   clearClippingPolygons,
   createIonSnapper,
-  resourceForTilesetUrl,
+  loadTilesetFromUrl,
+  TILESET_LOAD_OPTIONS,
   loadVectorOrMeshTileset,
   setClippingPolygons,
   snapAgainstBim,
@@ -238,6 +239,7 @@ export function CesiumViewer({
   const toolRef = useRef(tool);
   const poleLightsRef = useRef(poleLightsOn);
   const timeOfDayRef = useRef(timeOfDay);
+  const weatherRef = useRef(weather);
   const platformSettingsRef = useRef(platformSettings);
   const onPolesChangeRef = useRef(onPolesChange);
   const onMeasureRef = useRef(onMeasure);
@@ -271,6 +273,7 @@ export function CesiumViewer({
   clipInverseRef.current = clipInverse;
   drapeModeRef.current = drapeMode;
   timeOfDayRef.current = timeOfDay;
+  weatherRef.current = weather;
   platformSettingsRef.current = platformSettings;
   onPolesChangeRef.current = onPolesChange;
   onMeasureRef.current = onMeasure;
@@ -1363,13 +1366,15 @@ export function CesiumViewer({
       Cesium,
       tilesetRef.current,
       timeOfDay,
-      tilesetStylePreset
+      tilesetStylePreset,
+      weather
     );
     applyTilesetTimeOfDay(
       Cesium,
       vectorTilesetRef.current,
       timeOfDay,
-      tilesetStylePreset
+      tilesetStylePreset,
+      weather
     );
     viewer.scene.requestRender();
     // Wind particles disabled — don't force continuous render for weather alone
@@ -1402,13 +1407,18 @@ export function CesiumViewer({
       markUserCameraControl(viewer);
 
       const runZoom = async (attempt: number): Promise<void> => {
-        // External tileset may still be loading after Focus kicked off a Sample URL
+        // Wait up to ~30s for external tileset after Focus / Sample
         if (
           detail.builtInKey === "tileset" &&
           !tilesetRef.current &&
-          attempt < 25
+          attempt < 100
         ) {
-          await new Promise((r) => setTimeout(r, 200));
+          if (attempt === 0 || attempt % 10 === 0) {
+            onStatusRef.current(
+              `Waiting for external tileset… (${Math.round((attempt * 0.3))}s)`
+            );
+          }
+          await new Promise((r) => setTimeout(r, 300));
           return runZoom(attempt + 1);
         }
 
@@ -1619,18 +1629,15 @@ export function CesiumViewer({
           );
           let tileset: any;
           try {
-            // External http(s) URLs go through /api/tiles-proxy (CORS-safe)
-            tileset = await Cesium.Cesium3DTileset.fromUrl(
-              resourceForTilesetUrl(Cesium, url),
-              {
-                maximumScreenSpaceError: 8,
-              }
-            );
+            // Direct fetch first (fast); proxy only if CORS blocks
+            tileset = await loadTilesetFromUrl(Cesium, url, {
+              ...TILESET_LOAD_OPTIONS,
+            });
           } catch (loadErr) {
             const msg =
               loadErr instanceof Error ? loadErr.message : String(loadErr);
             throw new Error(
-              `Failed to fetch tileset (${url}). Use a public https://…/tileset.json (proxy handles CORS). ${msg}`
+              `Failed to fetch tileset (${url}). Use a public https://…/tileset.json. ${msg}`
             );
           }
           if (cancelled) {
@@ -1648,10 +1655,12 @@ export function CesiumViewer({
           }
           if (cancelled) return;
           if ("maximumScreenSpaceError" in tileset) {
-            tileset.maximumScreenSpaceError = 8;
+            tileset.maximumScreenSpaceError = 16;
           }
           viewer.scene.primitives.add(tileset);
           tilesetRef.current = tileset;
+          // Signal Focus waiters ASAP — don't wait for zoom
+          notifyTilesetReady(url);
           attachTilesetErrorHandlers(tileset, (message, detail) => {
             reportTwinError({ source: "3D Tiles", message, detail });
           });
@@ -1660,10 +1669,16 @@ export function CesiumViewer({
             Cesium,
             tileset,
             timeOfDayRef.current,
-            tilesetStylePreset
+            tilesetStylePreset,
+            weatherRef.current
           );
           pauseWalkChase(20_000);
           markUserCameraControl(viewer);
+          onStatusRef.current(
+            isSample
+              ? "Sample tileset ready — zooming…"
+              : "3D Tiles ready — zooming…"
+          );
 
           const zoomResult = await zoomCameraToLayer(
             Cesium,
@@ -1683,6 +1698,11 @@ export function CesiumViewer({
           );
 
           if (cancelled) return;
+
+          // Refine LOD after first camera settle
+          if ("maximumScreenSpaceError" in tileset) {
+            tileset.maximumScreenSpaceError = 8;
+          }
 
           // Place robot on tileset center (WGS84 ellipsoidal height)
           try {
@@ -1744,7 +1764,6 @@ export function CesiumViewer({
               detail: url,
             });
           }
-          notifyTilesetReady(url);
         } else if (config.cesiumIonAssetId && config.cesiumIonToken) {
           onStatusRef.current("Loading ion asset…");
           const tileset = await Cesium.Cesium3DTileset.fromIonAssetId(
@@ -1915,7 +1934,8 @@ export function CesiumViewer({
           Cesium,
           tilesetRef.current,
           timeOfDayRef.current,
-          tilesetStylePreset
+          tilesetStylePreset,
+          weatherRef.current
         );
       }
       if (vectorTilesetRef.current) {
@@ -1928,7 +1948,8 @@ export function CesiumViewer({
           Cesium,
           vectorTilesetRef.current,
           timeOfDayRef.current,
-          tilesetStylePreset
+          tilesetStylePreset,
+          weatherRef.current
         );
       }
     } catch (err) {
