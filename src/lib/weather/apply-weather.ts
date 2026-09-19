@@ -45,6 +45,8 @@ export function syncSolarClock(Cesium: CesiumNS, viewer: any) {
 /**
  * Day/night base lighting. Uses live solar time for day (SunLight);
  * night uses a dim cool fill so campus stays readable.
+ * Also toggles a scene brightness post-process so photogrammetry meshes
+ * (which ignore lights) still read as night.
  */
 export function applyTimeOfDay(
   Cesium: CesiumNS,
@@ -82,6 +84,7 @@ export function applyTimeOfDay(
     scene.backgroundColor = Cesium.Color.fromCssColorString(
       clouds > 0.6 ? "#6b7c8f" : "#87a0b8"
     );
+    setNightBrightnessStage(Cesium, viewer, false);
   } else {
     // Keep sun below the horizon so mesh IBL / shadows read as night
     try {
@@ -108,9 +111,37 @@ export function applyTimeOfDay(
     scene.fog.density = 0.00055 + clouds * 0.00025 + wind * 0.00012;
     scene.fog.minimumBrightness = 0.015;
     scene.backgroundColor = Cesium.Color.fromCssColorString("#05080e");
+    setNightBrightnessStage(Cesium, viewer, true);
   }
 
   scene.requestRender();
+}
+
+const NIGHT_STAGE_TAG = "__twinNightBrightness";
+
+/** Full-frame brightness drop — catches unlit photogrammetry tilesets. */
+function setNightBrightnessStage(
+  Cesium: CesiumNS,
+  viewer: any,
+  enabled: boolean
+) {
+  const scene = viewer?.scene;
+  if (!scene?.postProcessStages || !Cesium?.PostProcessStageLibrary) return;
+  try {
+    let stage = viewer[NIGHT_STAGE_TAG];
+    if (!stage) {
+      stage = Cesium.PostProcessStageLibrary.createBrightnessStage();
+      stage.uniforms.brightness = 0.42;
+      scene.postProcessStages.add(stage);
+      viewer[NIGHT_STAGE_TAG] = stage;
+    }
+    stage.enabled = enabled;
+    if (enabled) {
+      stage.uniforms.brightness = 0.42;
+    }
+  } catch (err) {
+    console.warn("Night brightness stage failed", err);
+  }
 }
 
 /**

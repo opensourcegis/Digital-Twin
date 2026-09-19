@@ -95,13 +95,10 @@ export function applyTilesetTimeOfDay(
     if (Cesium.CustomShader) {
       if (mode === "night") {
         tileset.customShader = new Cesium.CustomShader({
-          lightingModel: Cesium.LightingModel?.UNLIT,
+          lightingModel: Cesium.LightingModel.UNLIT,
           fragmentShaderText: `
 void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
-  material.diffuse *= vec3(0.18, 0.22, 0.34);
-  #ifdef HAS_EMISSIVE
-  material.emissive *= 0.15;
-  #endif
+  material.diffuse *= vec3(0.12, 0.15, 0.26);
 }
 `,
         });
