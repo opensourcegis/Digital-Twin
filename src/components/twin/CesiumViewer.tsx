@@ -1295,7 +1295,10 @@ export function CesiumViewer({
               tilesetRef.current ? "tileset" : "campus",
             getTileset: () => tilesetRef.current,
             getExcludeObjects: () => robotHandle.current?.entities ?? [],
+            // Keep left-click free for place; don't orbit-drag during place
             getAllowOrbitDrag: () => toolRef.current !== "robot-waypoints",
+            // Never chase-snap to robot while placing — stay on the layer in view
+            getHoldCamera: () => toolRef.current === "robot-waypoints",
           }
         );
       } catch (err) {
@@ -2104,12 +2107,9 @@ export function CesiumViewer({
     if (walkthroughMode === "walk") {
       const placing = tool === "robot-waypoints";
 
-      // Quietly move robot onto tileset data without yanking the camera
-      ensureRobotOnActiveTileset({ snapCamera: false });
-
       if (placing) {
         // Hold the current view (new layer) so the user can click a point.
-        // Chase cam would otherwise snap back to the robot on the previous layer.
+        // Do NOT move the robot or chase-cam — that leaves the tileset.
         pauseWalkChase(120_000);
         markUserCameraControl(viewer);
         viewer.camera.cancelFlight?.();
@@ -2122,6 +2122,9 @@ export function CesiumViewer({
         );
         return;
       }
+
+      // Quietly move robot onto tileset when starting normal Walk (not place)
+      ensureRobotOnActiveTileset({ snapCamera: false });
 
       clearUserCameraControl();
       viewer.camera.cancelFlight?.();
