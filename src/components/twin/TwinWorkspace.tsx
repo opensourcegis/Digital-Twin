@@ -115,7 +115,7 @@ export function TwinWorkspace() {
   const [tilesetUrl, setTilesetUrl] = useState("");
   const [activeScene, setActiveScene] = useState<"demo" | "tiles">("demo");
   const [robot, setRobot] = useState<RobotState>({
-    playing: false,
+    playing: true,
     progress: 0,
     speed: 1,
   });
