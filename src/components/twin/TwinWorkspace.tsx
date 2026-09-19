@@ -74,7 +74,12 @@ import {
   DEFAULT_SHELL,
 } from "@/lib/platform/types";
 import type { DockModuleId } from "@/lib/platform/types";
-import { requestZoomToLayer } from "@/lib/twin/zoom-to-layer";
+import { ErrorDashboard, type TwinError } from "@/components/twin/ErrorDashboard";
+import {
+  requestZoomToLayer,
+  type TwinErrorEvent,
+  type ZoomLayerTarget,
+} from "@/lib/twin/zoom-to-layer";
 
 type DockPanel = DockModuleId | null;
 
@@ -113,8 +118,10 @@ export function TwinWorkspace() {
   const [poleLightsOn, setPoleLightsOn] = useState(true);
   const [measure, setMeasure] = useState<MeasureResult | null>(null);
   const [status, setStatus] = useState("Booting…");
+  const [errors, setErrors] = useState<TwinError[]>([]);
   const [tilesetUrl, setTilesetUrl] = useState("");
   const [activeScene, setActiveScene] = useState<"demo" | "tiles">("demo");
+  const pendingTilesetZoom = useRef<ZoomLayerTarget | null>(null);
   const [robot, setRobot] = useState<RobotState>({
     playing: false,
     progress: 0,
@@ -259,6 +266,64 @@ export function TwinWorkspace() {
     setStatus("Loading sample tileset (AGI HQ)…");
   };
 
+  useEffect(() => {
+    const onError = (e: Event) => {
+      const detail = (e as CustomEvent<TwinErrorEvent>).detail;
+      if (!detail?.message) return;
+      setErrors((prev) => {
+        const next: TwinError = {
+          ...detail,
+          at: Date.now(),
+        };
+        // Dedupe identical open messages
+        if (
+          prev.some(
+            (p) =>
+              p.message === next.message &&
+              p.detail === next.detail &&
+              Date.now() - p.at < 4_000
+          )
+        ) {
+          return prev;
+        }
+        return [next, ...prev].slice(0, 20);
+      });
+    };
+    const onTilesetReady = (e: Event) => {
+      const pending = pendingTilesetZoom.current;
+      if (!pending) return;
+      pendingTilesetZoom.current = null;
+      // Small delay so tilesetRef is set and bounding sphere starts filling
+      window.setTimeout(() => {
+        requestZoomToLayer(pending);
+      }, 120);
+    };
+    window.addEventListener("twin-error", onError);
+    window.addEventListener("twin-tileset-ready", onTilesetReady);
+    return () => {
+      window.removeEventListener("twin-error", onError);
+      window.removeEventListener("twin-tileset-ready", onTilesetReady);
+    };
+  }, []);
+
+  const pushError = useCallback(
+    (message: string, source: string, detail?: string) => {
+      setErrors((prev) =>
+        [
+          {
+            id: `err-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            message,
+            detail,
+            source,
+            at: Date.now(),
+          },
+          ...prev,
+        ].slice(0, 20)
+      );
+    },
+    []
+  );
+
   const focusLayer = (layer: {
     configId: string;
     key: string;
@@ -269,30 +334,39 @@ export function TwinWorkspace() {
     twin.setWalkthroughMode("off");
     setRobot((r) => ({ ...r, playing: false }));
 
-    if (layer.builtInKey === "tileset") {
-      const url = tilesetUrl.trim() || SAMPLE_TILESET_URL;
-      if (!tilesetUrl.trim()) {
-        setTilesetUrl(url);
-        setActiveScene("tiles");
-        setStatus("Loading sample tileset, then zooming…");
-        window.setTimeout(() => {
-          requestZoomToLayer({
-            configId: layer.configId,
-            key: layer.key,
-            builtInKey: layer.builtInKey,
-          });
-        }, 1800);
-        return;
-      }
-      setActiveScene("tiles");
-    }
-
-    requestZoomToLayer({
+    const target: ZoomLayerTarget = {
       configId: layer.configId,
       key: layer.key,
       builtInKey: layer.builtInKey,
-    });
+    };
+
+    if (layer.builtInKey === "tileset") {
+      const url = tilesetUrl.trim() || SAMPLE_TILESET_URL;
+      if (!tilesetUrl.trim()) {
+        pendingTilesetZoom.current = target;
+        setTilesetUrl(url);
+        setActiveScene("tiles");
+        setStatus("Loading sample tileset, then zooming…");
+        // Fallback if ready event never fires
+        window.setTimeout(() => {
+          if (pendingTilesetZoom.current === target) {
+            pendingTilesetZoom.current = null;
+            requestZoomToLayer(target);
+          }
+        }, 10_000);
+        return;
+      }
+      setActiveScene("tiles");
+      setStatus(`Focusing ${layer.label}…`);
+    }
+
+    requestZoomToLayer(target);
   };
+
+  useEffect(() => {
+    if (!liveWeather.error) return;
+    pushError(liveWeather.error, "Weather");
+  }, [liveWeather.error, pushError]);
 
   const loadDemoScene = () => {
     setActiveScene("demo");
@@ -1019,6 +1093,16 @@ export function TwinWorkspace() {
           </div>
         </aside>
       )}
+
+      {/* Error dashboard — bottom left */}
+      <ErrorDashboard
+        errors={errors}
+        className={shell.showStatusBar ? undefined : "bottom-3 md:bottom-4"}
+        onDismiss={(id) =>
+          setErrors((prev) => prev.filter((e) => e.id !== id))
+        }
+        onClear={() => setErrors([])}
+      />
 
       {/* Slim status */}
       {shell.showStatusBar && (
