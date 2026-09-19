@@ -1945,7 +1945,9 @@ export function CesiumViewer({
     if (!Cesium || !readyRef.current) return;
     try {
       if (tilesetRef.current) {
-        applyCesium3DTileStyle(Cesium, tilesetRef.current, tilesetStylePreset);
+        if (tilesetStylePreset !== "default") {
+          applyCesium3DTileStyle(Cesium, tilesetRef.current, tilesetStylePreset);
+        }
         applyTilesetTimeOfDay(
           Cesium,
           tilesetRef.current,
@@ -1955,11 +1957,13 @@ export function CesiumViewer({
         );
       }
       if (vectorTilesetRef.current) {
-        applyCesium3DTileStyle(
-          Cesium,
-          vectorTilesetRef.current,
-          tilesetStylePreset
-        );
+        if (tilesetStylePreset !== "default") {
+          applyCesium3DTileStyle(
+            Cesium,
+            vectorTilesetRef.current,
+            tilesetStylePreset
+          );
+        }
         applyTilesetTimeOfDay(
           Cesium,
           vectorTilesetRef.current,
