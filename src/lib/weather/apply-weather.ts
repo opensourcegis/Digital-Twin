@@ -23,7 +23,7 @@ function cloudFactor(weather: SceneWeather | null): number {
 
 /** Sync Cesium clock to real UTC so SunLight matches Earth/sun for the site. */
 export function syncSolarClock(Cesium: CesiumNS, viewer: any) {
-  viewer.clock.currentTime = Cesium.JulianDate.now();
+  viewer.clock.currentTime = Cesium.JulianDate.fromDate(new Date());
   viewer.clock.shouldAnimate = true;
   viewer.clock.multiplier = 1;
 }
