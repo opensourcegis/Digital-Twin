@@ -149,7 +149,7 @@ export async function zoomCameraToLayer(
 ): Promise<{ ok: boolean; reason?: string }> {
   const bucket = target.builtInKey ?? target.key;
 
-  if (target.builtInKey === "tileset") {
+  if (target.builtInKey === "tileset" || target.key === "tileset") {
     if (!opts.tileset) {
       return {
         ok: false,
