@@ -15,30 +15,16 @@ export interface PoleLightCaches {
   poles: Map<string, any>;
   arms: Map<string, any>;
   housings: Map<string, any>;
-  lamps: Map<string, any>;
+  bulbs: Map<string, any>;
   glows: Map<string, any>;
-  pools: Map<string, any>;
-  hotspots: Map<string, any>;
   beams: Map<string, any>;
-}
-
-function emptyCaches(): PoleLightCaches {
-  return {
-    poles: new Map(),
-    arms: new Map(),
-    housings: new Map(),
-    lamps: new Map(),
-    glows: new Map(),
-    pools: new Map(),
-    hotspots: new Map(),
-    beams: new Map(),
-  };
+  pools: Map<string, any>;
 }
 
 /**
- * Street-lamp look: dark shaft + cantilever arm + housing + glowing bulb,
- * soft ground wash (clamped), subtle beam. Reads as a light at night,
- * not a flat orange disc.
+ * Clean street-lamp: dark shaft, short arm, lantern head, bright bulb.
+ * Night adds a soft downward beam + small warm ground wash.
+ * No giant flat orange discs.
  */
 export function syncNaturalPoleLight(
   Cesium: CesiumNS,
@@ -48,60 +34,40 @@ export function syncNaturalPoleLight(
   masterOn: boolean,
   caches: PoleLightCaches
 ) {
-  // Migrate old cache shape if needed
-  if (!caches.arms) Object.assign(caches, emptyCaches(), caches);
+  ensureMaps(caches);
 
-  const lit = pole.lightsOn && masterOn;
+  const on = Boolean(pole.lightsOn && masterOn);
   const night = timeOfDay === "night";
-  const shaftLen = 8.4;
-  const tipH = pole.height + shaftLen;
-  const groundH = pole.height + 0.08;
+  const lit = on && night;
+
+  const shaftH = 7.5;
+  const tipH = pole.height + shaftH;
+  const dLon =
+    1.35 / (111_320 * Math.max(0.2, Math.cos((pole.lat * Math.PI) / 180)));
+  const lampLon = pole.lon + dLon;
 
   const shaftPos = Cesium.Cartesian3.fromDegrees(
     pole.lon,
     pole.lat,
-    pole.height + shaftLen / 2
+    pole.height + shaftH / 2
   );
-  // Arm extends east (~local) so the lamp hangs off the pole
-  const armLon =
-    pole.lon + 1.8 / (111_320 * Math.cos((pole.lat * Math.PI) / 180));
-  const lampPos = Cesium.Cartesian3.fromDegrees(armLon, pole.lat, tipH - 0.55);
-  const housingPos = Cesium.Cartesian3.fromDegrees(
-    armLon,
+  const topPos = Cesium.Cartesian3.fromDegrees(pole.lon, pole.lat, tipH);
+  const lampPos = Cesium.Cartesian3.fromDegrees(lampLon, pole.lat, tipH - 0.45);
+  const headPos = Cesium.Cartesian3.fromDegrees(lampLon, pole.lat, tipH - 0.25);
+  const beamPos = Cesium.Cartesian3.fromDegrees(lampLon, pole.lat, tipH - 2.6);
+  const groundPos = Cesium.Cartesian3.fromDegrees(
+    lampLon,
     pole.lat,
-    tipH - 0.35
-  );
-  const ground = Cesium.Cartesian3.fromDegrees(armLon, pole.lat, groundH);
-  const beamMid = Cesium.Cartesian3.fromDegrees(
-    armLon,
-    pole.lat,
-    tipH - 3.2
+    pole.height + 0.06
   );
 
-  const steel = Cesium.Color.fromCssColorString("#3d4454");
-  const steelDark = Cesium.Color.fromCssColorString("#2a303c");
-  const bulb = Cesium.Color.fromCssColorString("#ffe9a8");
-  const wash = Cesium.Color.fromCssColorString("#ffcc77");
+  const metal = Cesium.Color.fromCssColorString("#4a5160");
+  const metalDark = Cesium.Color.fromCssColorString("#2e3440");
+  const filament = Cesium.Color.fromCssColorString("#fff1c2");
+  const warm = Cesium.Color.fromCssColorString("#ffd27a");
+  const bulbBright = on ? (night ? 1 : 0.5) : 0.18;
 
-  const bulbAlpha = lit ? (night ? 1.0 : 0.45) : 0.15;
-  const glowAlpha = lit ? (night ? 0.55 : 0.08) : 0;
-  const poolAlpha = lit ? (night ? 0.22 : 0.03) : 0;
-  const hotAlpha = lit ? (night ? 0.38 : 0.05) : 0;
-  const beamAlpha = lit ? (night ? 0.1 : 0.015) : 0;
-
-  const phase = pole.lon * 40 + pole.lat * 55;
-  const flicker = () =>
-    night && lit
-      ? 0.92 +
-        0.08 *
-          Math.sin(Date.now() / 210 + phase) *
-          Math.sin(Date.now() / 340 + phase * 0.4)
-      : 1;
-
-  const clampTerrain =
-    Cesium.HeightReference?.CLAMP_TO_GROUND ?? undefined;
-
-  // —— Shaft ——
+  // Shaft
   let shaft = caches.poles.get(pole.id);
   if (!shaft) {
     shaft = viewer.entities.add({
@@ -109,10 +75,10 @@ export function syncNaturalPoleLight(
       position: shaftPos,
       name: "Street light",
       cylinder: {
-        length: shaftLen,
-        topRadius: 0.11,
-        bottomRadius: 0.2,
-        material: steel,
+        length: shaftH,
+        topRadius: 0.1,
+        bottomRadius: 0.18,
+        material: metal,
         slices: 12,
       },
       properties: { kind: "pole", lightsOn: pole.lightsOn },
@@ -122,226 +88,146 @@ export function syncNaturalPoleLight(
     shaft.position = new Cesium.ConstantPositionProperty(shaftPos);
   }
 
-  // —— Cantilever arm (polyline — reliable orientation) ——
-  const shaftTop = Cesium.Cartesian3.fromDegrees(
-    pole.lon,
-    pole.lat,
-    tipH - 0.2
-  );
+  // Arm
   let arm = caches.arms.get(pole.id);
   if (!arm) {
     arm = viewer.entities.add({
       id: `${pole.id}-arm`,
       polyline: {
-        positions: [shaftTop, housingPos],
-        width: 4,
-        material: steelDark,
-        clampToGround: false,
+        positions: [topPos, headPos],
+        width: 3,
+        material: metalDark,
       },
     });
     caches.arms.set(pole.id, arm);
-  } else {
-    if (arm.polyline) {
-      arm.polyline.positions = new Cesium.ConstantProperty([
-        shaftTop,
-        housingPos,
-      ]);
-    }
+  } else if (arm.polyline) {
+    arm.polyline.positions = new Cesium.ConstantProperty([topPos, headPos]);
   }
 
-  // —— Lamp housing (dark canopy) ——
+  // Housing
   let housing = caches.housings.get(pole.id);
   if (!housing) {
     housing = viewer.entities.add({
       id: `${pole.id}-housing`,
-      position: housingPos,
+      position: headPos,
       cylinder: {
-        length: 0.28,
-        topRadius: 0.38,
-        bottomRadius: 0.48,
-        material: steelDark,
-        slices: 16,
+        length: 0.32,
+        topRadius: 0.32,
+        bottomRadius: 0.42,
+        material: metalDark,
+        slices: 14,
       },
     });
     caches.housings.set(pole.id, housing);
   } else {
-    housing.position = new Cesium.ConstantPositionProperty(housingPos);
+    housing.position = new Cesium.ConstantPositionProperty(headPos);
   }
 
-  // —— Glowing bulb under housing ——
-  let lamp = caches.lamps.get(pole.id);
-  if (!lamp) {
-    lamp = viewer.entities.add({
-      id: `${pole.id}-lamp`,
+  // Bulb
+  let bulb = caches.bulbs.get(pole.id);
+  if (!bulb) {
+    bulb = viewer.entities.add({
+      id: `${pole.id}-bulb`,
       position: lampPos,
       ellipsoid: {
-        radii: new Cesium.Cartesian3(0.22, 0.22, 0.16),
-        material: new Cesium.ColorMaterialProperty(
-          new Cesium.CallbackProperty(
-            () =>
-              lit
-                ? bulb.withAlpha(bulbAlpha * flicker())
-                : Cesium.Color.fromCssColorString("#7a8499").withAlpha(0.7),
-            false
-          )
-        ),
+        radii: new Cesium.Cartesian3(0.2, 0.2, 0.15),
+        material: filament.withAlpha(bulbBright),
       },
     });
-    caches.lamps.set(pole.id, lamp);
+    caches.bulbs.set(pole.id, bulb);
   } else {
-    lamp.position = new Cesium.ConstantPositionProperty(lampPos);
-    if (lamp.ellipsoid) {
-      lamp.ellipsoid.material = new Cesium.ColorMaterialProperty(
-        new Cesium.CallbackProperty(
-          () =>
-            lit
-              ? bulb.withAlpha(bulbAlpha * flicker())
-              : Cesium.Color.fromCssColorString("#7a8499").withAlpha(0.7),
-          false
-        )
-      );
+    bulb.position = new Cesium.ConstantPositionProperty(lampPos);
+    if (bulb.ellipsoid) {
+      bulb.ellipsoid.material = filament.withAlpha(bulbBright);
     }
   }
 
-  // —— Screen-space glow point (reads as a light from distance) ——
+  // Screen-space glow
   let glow = caches.glows.get(pole.id);
   if (!glow) {
     glow = viewer.entities.add({
       id: `${pole.id}-glow`,
       position: lampPos,
       point: {
-        pixelSize: night ? 16 : 8,
-        color: new Cesium.CallbackProperty(
-          () => bulb.withAlpha(glowAlpha * flicker()),
-          false
-        ),
-        outlineColor: Cesium.Color.fromCssColorString("#fff6d6").withAlpha(
-          night && lit ? 0.35 : 0
-        ),
-        outlineWidth: 2,
-        scaleByDistance: new Cesium.NearFarScalar(40, 1.5, 900, 0.35),
+        pixelSize: lit ? 18 : on ? 8 : 1,
+        color: filament.withAlpha(lit ? 0.9 : on ? 0.35 : 0),
+        outlineColor: Cesium.Color.WHITE.withAlpha(lit ? 0.25 : 0),
+        outlineWidth: 1,
+        scaleByDistance: new Cesium.NearFarScalar(30, 1.6, 600, 0.4),
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
       },
-      show: lit,
+      show: on,
     });
     caches.glows.set(pole.id, glow);
   } else {
     glow.position = new Cesium.ConstantPositionProperty(lampPos);
-    glow.show = lit;
+    glow.show = on;
     if (glow.point) {
-      glow.point.pixelSize = night ? 16 : 8;
-      glow.point.color = new Cesium.CallbackProperty(
-        () => bulb.withAlpha(glowAlpha * flicker()),
-        false
-      );
+      glow.point.pixelSize = lit ? 18 : on ? 8 : 1;
+      glow.point.color = filament.withAlpha(lit ? 0.9 : on ? 0.35 : 0);
     }
   }
 
-  // —— Soft ground wash (clamped to terrain — not a floating disc) ——
-  let pool = caches.pools.get(pole.id);
-  if (!pool) {
-    pool = viewer.entities.add({
-      id: `${pole.id}-pool`,
-      position: ground,
-      ellipse: {
-        semiMajorAxis: 14,
-        semiMinorAxis: 14,
-        height: clampTerrain ? undefined : groundH,
-        heightReference: clampTerrain,
-        material: new Cesium.ColorMaterialProperty(
-          new Cesium.CallbackProperty(
-            () => wash.withAlpha(poolAlpha * flicker()),
-            false
-          )
-        ),
-        outline: false,
-        classificationType: Cesium.ClassificationType?.TERRAIN,
-      },
-      show: lit && night,
-    });
-    caches.pools.set(pole.id, pool);
-  } else {
-    pool.position = new Cesium.ConstantPositionProperty(ground);
-    pool.show = lit && night;
-    if (pool.ellipse) {
-      pool.ellipse.material = new Cesium.ColorMaterialProperty(
-        new Cesium.CallbackProperty(
-          () => wash.withAlpha(poolAlpha * flicker()),
-          false
-        )
-      );
-    }
-  }
-
-  // —— Tight hotspot under the lamp ——
-  let hot = caches.hotspots.get(pole.id);
-  if (!hot) {
-    hot = viewer.entities.add({
-      id: `${pole.id}-hot`,
-      position: ground,
-      ellipse: {
-        semiMajorAxis: 3.2,
-        semiMinorAxis: 3.2,
-        height: clampTerrain ? undefined : groundH + 0.02,
-        heightReference: clampTerrain,
-        material: new Cesium.ColorMaterialProperty(
-          new Cesium.CallbackProperty(
-            () => bulb.withAlpha(hotAlpha * flicker()),
-            false
-          )
-        ),
-        outline: false,
-        classificationType: Cesium.ClassificationType?.TERRAIN,
-      },
-      show: lit && night,
-    });
-    caches.hotspots.set(pole.id, hot);
-  } else {
-    hot.position = new Cesium.ConstantPositionProperty(ground);
-    hot.show = lit && night;
-    if (hot.ellipse) {
-      hot.ellipse.material = new Cesium.ColorMaterialProperty(
-        new Cesium.CallbackProperty(
-          () => bulb.withAlpha(hotAlpha * flicker()),
-          false
-        )
-      );
-    }
-  }
-
-  // —— Subtle downward beam (narrow, low alpha) ——
+  // Narrow beam — night only
   let beam = caches.beams.get(pole.id);
   if (!beam) {
     beam = viewer.entities.add({
       id: `${pole.id}-beam`,
-      position: beamMid,
+      position: beamPos,
       cylinder: {
-        length: 5.8,
-        topRadius: 0.08,
-        bottomRadius: 2.4,
-        material: new Cesium.ColorMaterialProperty(
-          new Cesium.CallbackProperty(
-            () => wash.withAlpha(beamAlpha * flicker()),
-            false
-          )
-        ),
-        slices: 20,
+        length: 4.6,
+        topRadius: 0.05,
+        bottomRadius: 1.8,
+        material: warm.withAlpha(0.14),
+        slices: 18,
       },
-      show: lit && night,
+      show: lit,
     });
     caches.beams.set(pole.id, beam);
   } else {
-    beam.position = new Cesium.ConstantPositionProperty(beamMid);
-    beam.show = lit && night;
+    beam.position = new Cesium.ConstantPositionProperty(beamPos);
+    beam.show = lit;
     if (beam.cylinder) {
-      beam.cylinder.material = new Cesium.ColorMaterialProperty(
-        new Cesium.CallbackProperty(
-          () => wash.withAlpha(beamAlpha * flicker()),
-          false
-        )
-      );
+      beam.cylinder.material = warm.withAlpha(0.14);
     }
   }
+
+  // Small ground wash — night only
+  const clamp = Cesium.HeightReference?.CLAMP_TO_GROUND;
+  let pool = caches.pools.get(pole.id);
+  if (!pool) {
+    pool = viewer.entities.add({
+      id: `${pole.id}-pool`,
+      position: groundPos,
+      ellipse: {
+        semiMajorAxis: 5.5,
+        semiMinorAxis: 5.5,
+        height: clamp ? undefined : pole.height + 0.06,
+        heightReference: clamp,
+        material: warm.withAlpha(0.2),
+        outline: false,
+        classificationType: Cesium.ClassificationType?.TERRAIN,
+      },
+      show: lit,
+    });
+    caches.pools.set(pole.id, pool);
+  } else {
+    pool.position = new Cesium.ConstantPositionProperty(groundPos);
+    pool.show = lit;
+    if (pool.ellipse) {
+      pool.ellipse.material = warm.withAlpha(0.2);
+    }
+  }
+}
+
+function ensureMaps(caches: PoleLightCaches) {
+  caches.poles ??= new Map();
+  caches.arms ??= new Map();
+  caches.housings ??= new Map();
+  caches.bulbs ??= new Map();
+  caches.glows ??= new Map();
+  caches.beams ??= new Map();
+  caches.pools ??= new Map();
 }
 
 export function removePoleLight(
@@ -349,33 +235,30 @@ export function removePoleLight(
   id: string,
   caches: PoleLightCaches
 ) {
-  const suffixes = [
-    "",
-    "-arm",
-    "-housing",
-    "-lamp",
-    "-glow",
-    "-pool",
-    "-hot",
-    "-beam",
-    // legacy ids from prior pole renderer
-    "-cone",
-  ];
-  for (const s of suffixes) {
-    const e = viewer.entities.getById(`${id}${s}`);
+  for (const eid of [
+    id,
+    `${id}-arm`,
+    `${id}-housing`,
+    `${id}-bulb`,
+    `${id}-lamp`,
+    `${id}-glow`,
+    `${id}-beam`,
+    `${id}-pool`,
+    `${id}-hot`,
+    `${id}-cone`,
+  ]) {
+    const e = viewer.entities.getById(eid);
     if (e) viewer.entities.remove(e);
   }
-  caches.poles.delete(id);
+  caches.poles?.delete(id);
   caches.arms?.delete(id);
   caches.housings?.delete(id);
-  caches.lamps.delete(id);
+  caches.bulbs?.delete(id);
   caches.glows?.delete(id);
-  caches.pools.delete(id);
-  caches.hotspots.delete(id);
   caches.beams?.delete(id);
+  caches.pools?.delete(id);
 }
 
-/** Keep night flicker alive under requestRenderMode. */
 export function startPoleLightFlickerLoop(
   viewer: any,
   isActive: () => boolean
@@ -383,7 +266,7 @@ export function startPoleLightFlickerLoop(
   let raf = 0;
   let last = 0;
   const tick = (now: number) => {
-    if (isActive() && now - last > 100) {
+    if (isActive() && now - last > 120) {
       last = now;
       viewer.scene?.requestRender?.();
     }
