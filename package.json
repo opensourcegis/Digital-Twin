@@ -11,8 +11,7 @@
     "lint": "eslint .",
     "copy-cesium": "node scripts/copy-cesium.mjs",
     "db:migrate": "tsx src/db/migrate.ts",
-    "db:seed": "tsx src/db/migrate.ts",
-    "db:up": "docker compose up -d db"
+    "db:seed": "tsx src/db/migrate.ts"
   },
   "dependencies": {
     "@netlify/database": "^2.0.1",

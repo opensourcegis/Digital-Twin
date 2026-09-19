@@ -88,7 +88,7 @@ export const sensors = pgTable(
   (t) => [index("sensors_asset_idx").on(t.assetGuid)]
 );
 
-/** Timeseries hypertable candidate — chunked by time in docker init. */
+/** Timeseries hypertable candidate — created by migration when Timescale is available. */
 export const sensorReadings = pgTable(
   "sensor_readings",
   {

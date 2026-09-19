@@ -12,13 +12,13 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ### Product & services
 
-TwinBench is a single Next.js 16 app (CesiumJS viewer + demo campus twin). No database or Docker is required for local development — the twin runs in memory when `DATABASE_URL` is unset.
+TwinBench is a single Next.js 16 app (CesiumJS viewer + demo campus twin). No database is required for local development — the twin runs in memory when `DATABASE_URL` is unset. Run Postgres yourself if you want persistence.
 
 | Service | Command | Port |
 | --- | --- | --- |
 | Dev server | `npm run dev` | **43145** |
 | Production (after build) | `node .next/standalone/server.js` | **43145** (set `PORT` / `HOSTNAME`) |
-| Postgres / PostGIS / Timescale (optional) | `npm run db:up` then `DATABASE_URL=… npm run db:migrate` | **5432** |
+| Postgres / PostGIS / Timescale (optional, external) | your local install + `DATABASE_URL=… npm run db:migrate` | **5432** |
 
 `npm run dev` runs `scripts/copy-cesium.mjs` first (copies Cesium assets to `public/cesium`). Demo campus works without `CESIUM_ION_TOKEN`.
 
@@ -28,9 +28,11 @@ TwinBench is a single Next.js 16 app (CesiumJS viewer + demo campus twin). No da
 
 Optional Postgres enables durable assets, sensor readings (Timescale hypertable when available), alerts, events, MQTT/SensorThings gateway config, IFC GUID mapping, scenarios, and analytics findings.
 
+Point `DATABASE_URL` at a Postgres you already run (PostGIS recommended; Timescale optional). Then:
+
 ```bash
-npm run db:up
-DATABASE_URL=postgres://twin:twin@127.0.0.1:5432/twinbench npm run db:migrate
+export DATABASE_URL=postgres://USER:PASS@127.0.0.1:5432/twinbench
+npm run db:migrate
 ```
 
 Without `DATABASE_URL`, APIs still work in memory (simulator + in-process scenario/analytics). On Netlify Database, PostGIS/Timescale extensions may be unavailable — migration falls back to plain Postgres indexes.
