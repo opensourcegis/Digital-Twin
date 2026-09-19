@@ -88,15 +88,19 @@ DEFAULT_TILESET_URL=https://example.com/path/tileset.json
 
 Restart the app. Token status appears under **Tiles**. You can also paste any reachable `tileset.json` URL in the UI without rebuilding.
 
-## Docker (private server)
+## Optional Postgres (local machine)
+
+Persistence is optional. Leave `DATABASE_URL` unset to run fully in memory.
+
+If you already run Postgres locally (PostGIS recommended; Timescale optional):
 
 ```bash
-docker compose up --build
+export DATABASE_URL=postgres://USER:PASS@127.0.0.1:5432/twinbench
+npm run db:migrate   # schema + demo seed
+npm run dev
 ```
 
-App: [http://127.0.0.1:43145](http://127.0.0.1:43145).
-
-Optional: put tiles under `./data/tiles` (mounted read-only) and reference them as `/tiles/.../tileset.json` once you add a static file server or Next rewrite — for MVP, prefer a full URL or ion asset.
+Check status: `GET /api/db/status`.
 
 ## API (mock backends)
 
@@ -118,7 +122,7 @@ Optional: put tiles under `./data/tiles` (mounted read-only) and reference them 
 
 - Next.js + TypeScript + Tailwind + shadcn-style primitives
 - CesiumJS globe / 3D Tiles
-- Docker Compose for private deploy
+- Optional local Postgres / PostGIS / Timescale via `DATABASE_URL`
 
 ## Scripts
 
@@ -127,6 +131,7 @@ Optional: put tiles under `./data/tiles` (mounted read-only) and reference them 
 | `npm run dev` | Dev server on port **43145** (copies Cesium assets first) |
 | `npm run build` / `npm start` | Production build / serve |
 | `npm run copy-cesium` | Refresh `public/cesium` from `node_modules` |
+| `npm run db:migrate` | Apply schema + seed (requires `DATABASE_URL`) |
 
 ## License note
 

@@ -1,0 +1,63 @@
+{
+  "projectName": "Campus Annex IFC",
+  "nodes": [
+    {
+      "ifcGuid": "1A2B3C4D5E6F7081",
+      "name": "Annex Building",
+      "type": "building",
+      "lon": -122.1342,
+      "lat": 37.4222,
+      "height": 0
+    },
+    {
+      "ifcGuid": "1A2B3C4D5E6F7082",
+      "name": "Level 01",
+      "type": "floor",
+      "parentIfcGuid": "1A2B3C4D5E6F7081",
+      "floorIndex": 0,
+      "lon": -122.1342,
+      "lat": 37.4222,
+      "height": 0
+    },
+    {
+      "ifcGuid": "1A2B3C4D5E6F7083",
+      "name": "Level 02",
+      "type": "floor",
+      "parentIfcGuid": "1A2B3C4D5E6F7081",
+      "floorIndex": 1,
+      "lon": -122.1342,
+      "lat": 37.4222,
+      "height": 3.5
+    },
+    {
+      "ifcGuid": "1A2B3C4D5E6F7084",
+      "name": "Mechanical Room 01",
+      "type": "space",
+      "parentIfcGuid": "1A2B3C4D5E6F7082",
+      "floorIndex": 0,
+      "lon": -122.13425,
+      "lat": 37.42218,
+      "height": 0.5
+    },
+    {
+      "ifcGuid": "1A2B3C4D5E6F7085",
+      "name": "AHU-ANNEX-01",
+      "type": "equipment",
+      "parentIfcGuid": "1A2B3C4D5E6F7084",
+      "floorIndex": 0,
+      "lon": -122.13428,
+      "lat": 37.42217,
+      "height": 1.2
+    },
+    {
+      "ifcGuid": "1A2B3C4D5E6F7086",
+      "name": "Open Office 201",
+      "type": "space",
+      "parentIfcGuid": "1A2B3C4D5E6F7083",
+      "floorIndex": 1,
+      "lon": -122.13415,
+      "lat": 37.42225,
+      "height": 4
+    }
+  ]
+}

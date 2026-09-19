@@ -20,6 +20,14 @@ export interface SimulationSettings {
   };
   seedPoles: boolean;
   defaultPoleCount: number;
+  /** Camera home when twin loads / demo reset */
+  cameraHome: {
+    lon: number;
+    lat: number;
+    height: number;
+    headingDeg: number;
+    pitchDeg: number;
+  };
 }
 
 export interface InformaticsSettings {
@@ -32,6 +40,11 @@ export interface InformaticsSettings {
   alertLimit: number;
   weatherPollMinutes: number;
   copTitle: string;
+  weatherSectionTitle: string;
+  bmsSectionTitle: string;
+  robotBatteryLabel: string;
+  criticalAlertsLabel: string;
+  temperatureUnit: "C" | "F";
 }
 
 export type GisToolId = Exclude<ActiveTool, "navigate">;
@@ -46,7 +59,53 @@ export interface GisAnalysisSettings {
   heightSampleCount: number;
 }
 
+export type DockModuleId =
+  | "live"
+  | "insight"
+  | "sim"
+  | "tiles"
+  | "layers"
+  | "tools";
+
+export interface DockModuleConfig {
+  id: DockModuleId;
+  enabled: boolean;
+  label: string;
+  panelTitle: string;
+  order: number;
+}
+
+export interface BrandingSettings {
+  productName: string;
+  tagline: string;
+  accentFrom: string;
+  accentTo: string;
+  showBrandChip: boolean;
+  showLiveChip: boolean;
+  liveLabel: string;
+  offlineLabel: string;
+  loadingLabel: string;
+  readyLabel: string;
+}
+
+export interface ShellSettings {
+  modules: DockModuleConfig[];
+  defaultPanel: DockModuleId | null;
+  showDayNightToggle: boolean;
+  showZoomControls: boolean;
+  showAdminLink: boolean;
+  showHeader: boolean;
+  showStatusBar: boolean;
+  showInsightBim: boolean;
+  showInsightScenario: boolean;
+  showInsightAnalytics: boolean;
+  insightPanelTitle: string;
+  footerTemplate: string;
+}
+
 export interface PlatformSettings {
+  branding: BrandingSettings;
+  shell: ShellSettings;
   simulation: SimulationSettings;
   informatics: InformaticsSettings;
   gis: GisAnalysisSettings;
@@ -76,6 +135,13 @@ export const DEFAULT_SIMULATION: SimulationSettings = {
   },
   seedPoles: true,
   defaultPoleCount: 4,
+  cameraHome: {
+    lon: -122.1339,
+    lat: 37.42205,
+    height: 420,
+    headingDeg: 25,
+    pitchDeg: -35,
+  },
 };
 
 export const DEFAULT_INFORMATICS: InformaticsSettings = {
@@ -88,6 +154,11 @@ export const DEFAULT_INFORMATICS: InformaticsSettings = {
   alertLimit: 12,
   weatherPollMinutes: 10,
   copTitle: "Common operating picture",
+  weatherSectionTitle: "Site weather",
+  bmsSectionTitle: "BMS / BAS",
+  robotBatteryLabel: "Robot battery",
+  criticalAlertsLabel: "Critical alerts",
+  temperatureUnit: "C",
 };
 
 export const DEFAULT_GIS: GisAnalysisSettings = {
@@ -108,6 +179,77 @@ export const DEFAULT_GIS: GisAnalysisSettings = {
   heightSampleCount: 24,
 };
 
+export const DEFAULT_BRANDING: BrandingSettings = {
+  productName: "TwinBench",
+  tagline: "Operations twin",
+  accentFrom: "#94a3b8",
+  accentTo: "#64748b",
+  showBrandChip: true,
+  showLiveChip: true,
+  liveLabel: "Live",
+  offlineLabel: "Offline",
+  loadingLabel: "Opening twin…",
+  readyLabel: "Campus twin ready",
+};
+
+export const DEFAULT_SHELL: ShellSettings = {
+  modules: [
+    {
+      id: "live",
+      enabled: true,
+      label: "Live",
+      panelTitle: "Live data",
+      order: 0,
+    },
+    {
+      id: "insight",
+      enabled: true,
+      label: "Insight",
+      panelTitle: "BIM · Scenario · Analytics",
+      order: 1,
+    },
+    {
+      id: "sim",
+      enabled: true,
+      label: "Sim",
+      panelTitle: "Simulation",
+      order: 2,
+    },
+    {
+      id: "tiles",
+      enabled: true,
+      label: "Tiles",
+      panelTitle: "3D Tiles",
+      order: 3,
+    },
+    {
+      id: "layers",
+      enabled: true,
+      label: "Layers",
+      panelTitle: "Layers",
+      order: 4,
+    },
+    {
+      id: "tools",
+      enabled: true,
+      label: "Tools",
+      panelTitle: "Tools",
+      order: 5,
+    },
+  ],
+  defaultPanel: null,
+  showDayNightToggle: true,
+  showZoomControls: true,
+  showAdminLink: true,
+  showHeader: true,
+  showStatusBar: true,
+  showInsightBim: true,
+  showInsightScenario: true,
+  showInsightAnalytics: true,
+  insightPanelTitle: "BIM · Scenario · Analytics",
+  footerTemplate: "{status} · {tod} · {temp} · {alerts} critical",
+};
+
 export const ALL_GIS_TOOLS: { id: GisToolId; label: string }[] = [
   { id: "measure-distance", label: "Distance" },
   { id: "measure-area", label: "Area" },
@@ -117,4 +259,13 @@ export const ALL_GIS_TOOLS: { id: GisToolId; label: string }[] = [
   { id: "place-pole", label: "Place pole" },
   { id: "draw-poles", label: "Draw poles" },
   { id: "robot-waypoints", label: "Robot waypoints" },
+];
+
+export const DOCK_MODULE_IDS: DockModuleId[] = [
+  "live",
+  "insight",
+  "sim",
+  "tiles",
+  "layers",
+  "tools",
 ];

@@ -10,6 +10,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "sensorGuid required" }, { status: 400 });
   }
   return NextResponse.json({
-    points: store.getTimeSeries(sensorGuid, from, to),
+    points: await store.getTimeSeriesAsync(sensorGuid, from, to),
   });
 }

@@ -12,16 +12,40 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ### Product & services
 
-TwinBench is a single Next.js 16 app (CesiumJS viewer + demo campus twin). No database or Docker is required for local development.
+TwinBench is a single Next.js 16 app (CesiumJS viewer + demo campus twin). No database is required for local development — the twin runs in memory when `DATABASE_URL` is unset. Run Postgres yourself if you want persistence.
 
 | Service | Command | Port |
 | --- | --- | --- |
 | Dev server | `npm run dev` | **43145** |
 | Production (after build) | `node .next/standalone/server.js` | **43145** (set `PORT` / `HOSTNAME`) |
+| Postgres / PostGIS / Timescale (optional, external) | your local install + `DATABASE_URL=… npm run db:migrate` | **5432** |
 
 `npm run dev` runs `scripts/copy-cesium.mjs` first (copies Cesium assets to `public/cesium`). Demo campus works without `CESIUM_ION_TOKEN`.
 
 **Branch note:** `main` may be empty; application code lives on `cursor/digital-twin-mvp-49ad` (or branches based on it).
+
+### Persistent twin (Phases 1–5)
+
+Optional Postgres enables durable assets, sensor readings (Timescale hypertable when available), alerts, events, MQTT/SensorThings gateway config, IFC GUID mapping, scenarios, and analytics findings.
+
+Point `DATABASE_URL` at a Postgres you already run (PostGIS recommended; Timescale optional). Then:
+
+```bash
+export DATABASE_URL=postgres://USER:PASS@127.0.0.1:5432/twinbench
+npm run db:migrate
+```
+
+Without `DATABASE_URL`, APIs still work in memory (simulator + in-process scenario/analytics). Plain Postgres works; PostGIS/Timescale are optional — migration falls back when extensions are missing.
+
+| Phase | API |
+| --- | --- |
+| 1 Persist | `GET /api/db/status` |
+| 2 Gateway | `GET/POST /api/gateway`, `POST /api/gateway/sensorthings` |
+| 3 BIM | `GET /api/bim/hierarchy`, `GET/POST /api/bim/ifc` |
+| 4 Scenario | `GET/POST /api/scenarios`, `…/[id]/simulate`, `…/[id]/compare` |
+| 5 Analytics | `GET/POST /api/analytics` |
+
+Env: `DATABASE_URL`, `MQTT_URL`, `SENSOR_THINGS_URL`, `GATEWAY_MODE` (`simulator` \| `mqtt` \| `sensorthings`).
 
 ### Lint
 
@@ -49,6 +73,7 @@ If the UI shows **"Opening twin…"** indefinitely, the usual cause is missing W
 npm ci
 npm run build
 curl -sf http://127.0.0.1:43145/api/config   # after starting dev or prod server
+curl -sf http://127.0.0.1:43145/api/db/status
 ```
 
-Expected config JSON includes `"basemap":"osm"` and `"demoScene":"campus"`.
+Expected config JSON includes `"basemap":"osm"` and `"demoScene":"campus"`. DB status reports memory fallback when `DATABASE_URL` is unset.

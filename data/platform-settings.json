@@ -1,4 +1,73 @@
 {
+  "branding": {
+    "productName": "TwinBench",
+    "tagline": "Operations twin",
+    "accentFrom": "#94a3b8",
+    "accentTo": "#64748b",
+    "showBrandChip": true,
+    "showLiveChip": true,
+    "liveLabel": "Live",
+    "offlineLabel": "Offline",
+    "loadingLabel": "Opening twin…",
+    "readyLabel": "Campus twin ready"
+  },
+  "shell": {
+    "modules": [
+      {
+        "id": "live",
+        "enabled": true,
+        "label": "Live",
+        "panelTitle": "Live data",
+        "order": 0
+      },
+      {
+        "id": "insight",
+        "enabled": true,
+        "label": "Insight",
+        "panelTitle": "BIM · Scenario · Analytics",
+        "order": 1
+      },
+      {
+        "id": "sim",
+        "enabled": true,
+        "label": "Sim",
+        "panelTitle": "Simulation",
+        "order": 2
+      },
+      {
+        "id": "tiles",
+        "enabled": true,
+        "label": "Tiles",
+        "panelTitle": "3D Tiles",
+        "order": 3
+      },
+      {
+        "id": "layers",
+        "enabled": true,
+        "label": "Layers",
+        "panelTitle": "Layers",
+        "order": 4
+      },
+      {
+        "id": "tools",
+        "enabled": true,
+        "label": "Tools",
+        "panelTitle": "Tools",
+        "order": 5
+      }
+    ],
+    "defaultPanel": null,
+    "showDayNightToggle": true,
+    "showZoomControls": true,
+    "showAdminLink": true,
+    "showHeader": true,
+    "showStatusBar": true,
+    "showInsightBim": true,
+    "showInsightScenario": true,
+    "showInsightAnalytics": true,
+    "insightPanelTitle": "BIM · Scenario · Analytics",
+    "footerTemplate": "{status} · {tod} · {temp} · {alerts} critical"
+  },
   "simulation": {
     "robotName": "ATLAS-01",
     "baseSpeedMps": 2.8,
@@ -21,7 +90,14 @@
       "maxLat": 37.4236
     },
     "seedPoles": true,
-    "defaultPoleCount": 4
+    "defaultPoleCount": 4,
+    "cameraHome": {
+      "lon": -122.1339,
+      "lat": 37.42205,
+      "height": 160,
+      "headingDeg": 28,
+      "pitchDeg": -48
+    }
   },
   "informatics": {
     "showWeather": true,
@@ -32,7 +108,12 @@
     "bmsLimit": 4,
     "alertLimit": 12,
     "weatherPollMinutes": 10,
-    "copTitle": "Common operating picture"
+    "copTitle": "Common operating picture",
+    "weatherSectionTitle": "Site weather",
+    "bmsSectionTitle": "BMS / BAS",
+    "robotBatteryLabel": "Robot battery",
+    "criticalAlertsLabel": "Critical alerts",
+    "temperatureUnit": "C"
   },
   "gis": {
     "enabledTools": [
@@ -51,5 +132,5 @@
     "poleSpacingM": 35,
     "heightSampleCount": 24
   },
-  "updatedAt": "2026-09-19T00:00:00.000Z"
+  "updatedAt": "2026-09-19T06:45:00.000Z"
 }

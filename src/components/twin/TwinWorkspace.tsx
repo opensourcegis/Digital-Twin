@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Moon,
   Sun,
@@ -23,6 +23,7 @@ import {
   Navigation,
   FlaskConical,
   Activity,
+  Network,
   Settings,
   Plus,
   Minus,
@@ -45,6 +46,7 @@ import { useTwinPlatform } from "@/hooks/useTwinPlatform";
 import { useLayerCatalog } from "@/hooks/useLayerCatalog";
 import { useWeather } from "@/hooks/useWeather";
 import { OperationsPanel } from "@/components/twin/OperationsPanel";
+import { TwinInsightPanel } from "@/components/twin/TwinInsightPanel";
 import { WalkthroughControls } from "@/components/twin/WalkthroughControls";
 import { TimeSlider } from "@/components/twin/TimeSlider";
 import { AssetDetailDrawer } from "@/components/twin/AssetDetailDrawer";
@@ -64,10 +66,13 @@ import {
   DEFAULT_GIS,
   DEFAULT_INFORMATICS,
   DEFAULT_SIMULATION,
+  DEFAULT_BRANDING,
+  DEFAULT_SHELL,
 } from "@/lib/platform/types";
+import type { DockModuleId } from "@/lib/platform/types";
 import { requestZoomToLayer } from "@/lib/twin/zoom-to-layer";
 
-type DockPanel = "live" | "sim" | "tiles" | "layers" | "tools" | null;
+type DockPanel = DockModuleId | null;
 
 const CesiumViewer = dynamic(
   () =>
@@ -125,6 +130,10 @@ export function TwinWorkspace() {
   const sim = platform?.simulation ?? DEFAULT_SIMULATION;
   const informatics = platform?.informatics ?? DEFAULT_INFORMATICS;
   const gis = platform?.gis ?? DEFAULT_GIS;
+  const branding = platform?.branding ?? DEFAULT_BRANDING;
+  const shell = platform?.shell ?? DEFAULT_SHELL;
+  const defaultPanelApplied = useRef(false);
+  const walkthroughDefaultApplied = useRef(false);
 
   useEffect(() => {
     if (!liveWeather.followDayNight) return;
@@ -135,6 +144,30 @@ export function TwinWorkspace() {
   const handleRobotProgress = useCallback((progress: number) => {
     setRobot((r) => (r.progress === progress ? r : { ...r, progress }));
   }, []);
+
+  const applyPlatform = useCallback(
+    (settings: PlatformSettings) => {
+      setPlatform(settings);
+      if (
+        !defaultPanelApplied.current &&
+        settings.shell.defaultPanel &&
+        settings.shell.modules.some(
+          (m) => m.id === settings.shell.defaultPanel && m.enabled
+        )
+      ) {
+        setPanel(settings.shell.defaultPanel);
+        defaultPanelApplied.current = true;
+      }
+      if (
+        !walkthroughDefaultApplied.current &&
+        settings.simulation.defaultWalkthroughMode !== "off"
+      ) {
+        twin.setWalkthroughMode(settings.simulation.defaultWalkthroughMode);
+        walkthroughDefaultApplied.current = true;
+      }
+    },
+    [twin]
+  );
 
   useEffect(() => {
     fetch("/api/config")
@@ -157,22 +190,22 @@ export function TwinWorkspace() {
         console.warn("Config fetch failed, keeping demo defaults", err);
       });
 
-    fetch("/api/platform-settings")
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`platform ${r.status}`);
-        return r.json();
-      })
-      .then((data: { settings: PlatformSettings }) => {
-        setPlatform(data.settings);
-        if (data.settings.simulation.defaultWalkthroughMode !== "off") {
-          twin.setWalkthroughMode(
-            data.settings.simulation.defaultWalkthroughMode
-          );
-        }
-      })
-      .catch((err) => {
-        console.warn("Platform settings unavailable", err);
-      });
+    const loadPlatform = () =>
+      fetch("/api/platform-settings")
+        .then(async (r) => {
+          if (!r.ok) throw new Error(`platform ${r.status}`);
+          return r.json();
+        })
+        .then((data: { settings: PlatformSettings }) => {
+          applyPlatform(data.settings);
+        })
+        .catch((err) => {
+          console.warn("Platform settings unavailable", err);
+        });
+
+    void loadPlatform();
+    const id = setInterval(loadPlatform, 12_000);
+    return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -332,24 +365,54 @@ export function TwinWorkspace() {
       (l) => l.builtInKey === "tileset" || l.category === "tiles-3d"
     )?.dataSource ?? null;
 
-  const dockItems = [
-    { id: "live" as const, label: "Live", icon: Activity },
-    { id: "sim" as const, label: "Sim", icon: Bot },
-    { id: "tiles" as const, label: "Tiles", icon: Box },
-    { id: "layers" as const, label: "Layers", icon: Layers },
-    { id: "tools" as const, label: "Tools", icon: Wrench },
-  ];
+  const dockIconMap = {
+    live: Activity,
+    insight: Network,
+    sim: Bot,
+    tiles: Box,
+    layers: Layers,
+    tools: Wrench,
+  } as const;
 
-  const panelTitle: Record<Exclude<DockPanel, null>, string> = {
-    live: "Live data",
-    sim: "Simulation",
-    tiles: "3D Tiles",
-    layers: "Layers",
-    tools: "Tools",
-  };
+  const dockItems = [...shell.modules]
+    .filter((m) => m.enabled)
+    .sort((a, b) => a.order - b.order)
+    .map((m) => ({
+      id: m.id,
+      label: m.label,
+      icon: dockIconMap[m.id],
+    }));
+
+  const panelTitle: Record<DockModuleId, string> = Object.fromEntries(
+    shell.modules.map((m) => [
+      m.id,
+      m.id === "insight" ? shell.insightPanelTitle || m.panelTitle : m.panelTitle,
+    ])
+  ) as Record<DockModuleId, string>;
+
+  const footerText = shell.footerTemplate
+    .replace("{status}", status)
+    .replace("{tod}", timeOfDay === "day" ? "Day" : "Night")
+    .replace(
+      "{temp}",
+      liveWeather.weather?.temperatureC != null
+        ? informatics.temperatureUnit === "F"
+          ? `${((liveWeather.weather.temperatureC * 9) / 5 + 32).toFixed(0)}°F`
+          : `${liveWeather.weather.temperatureC.toFixed(0)}°C`
+        : "—"
+    )
+    .replace("{alerts}", String(criticalCount));
 
   return (
-    <div className="relative h-[100dvh] w-full overflow-hidden bg-[#071018] text-slate-100">
+    <div
+      className="relative h-[100dvh] w-full overflow-hidden bg-[#071018] text-slate-100"
+        style={
+          {
+            ["--twin-accent-from"]: branding.accentFrom,
+            ["--twin-accent-to"]: branding.accentTo,
+          } as Record<string, string>
+        }
+    >
       <div className="pointer-events-none absolute inset-0 z-0 twin-atmosphere" />
       <div
         className={cn(
@@ -390,19 +453,27 @@ export function TwinWorkspace() {
       />
 
       {/* Minimal brand */}
+      {shell.showHeader && (
       <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 p-3 md:p-4">
+        {branding.showBrandChip && (
         <div className="pointer-events-auto glass-panel flex items-center gap-3 rounded-xl px-3 py-2">
-          <div className="grid h-8 w-8 place-items-center rounded-md bg-gradient-to-br from-slate-200 to-slate-500 text-slate-950">
+          <div
+            className="grid h-8 w-8 place-items-center rounded-md text-slate-950"
+            style={{
+              background: `linear-gradient(135deg, ${branding.accentFrom}, ${branding.accentTo})`,
+            }}
+          >
             <Layers className="h-3.5 w-3.5" />
           </div>
           <div>
             <p className="font-display text-base leading-none tracking-tight text-white">
-              TwinBench
+              {branding.productName}
             </p>
             <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-slate-500">
-              Operations twin
+              {branding.tagline}
             </p>
           </div>
+          {branding.showLiveChip && (
           <span className="hud-chip ml-1">
             <span
               className={cn(
@@ -411,17 +482,23 @@ export function TwinWorkspace() {
                 twin.connected && criticalCount > 0 && "live-dot--warn"
               )}
             />
-            {twin.connected ? "Live" : "Offline"}
+            {twin.connected ? branding.liveLabel : branding.offlineLabel}
           </span>
+          )}
         </div>
+        )}
 
-        <div className="pointer-events-auto flex items-center gap-1.5">
+        <div className="pointer-events-auto ml-auto flex items-center gap-1.5">
           <div className="glass-panel flex items-center gap-0.5 rounded-xl p-1">
-            <Button asChild size="sm" variant="ghost" title="Admin">
+            {shell.showAdminLink && (
+            <Button asChild size="sm" variant="ghost" title="Control Center">
               <Link href="/admin">
                 <Settings className="h-4 w-4" />
               </Link>
             </Button>
+            )}
+            {shell.showDayNightToggle && (
+            <>
             <Button
               size="sm"
               variant={timeOfDay === "day" ? "default" : "ghost"}
@@ -438,6 +515,10 @@ export function TwinWorkspace() {
             >
               <Moon className="h-4 w-4" />
             </Button>
+            </>
+            )}
+            {shell.showZoomControls && (
+            <>
             <Button
               size="sm"
               variant="ghost"
@@ -454,9 +535,12 @@ export function TwinWorkspace() {
             >
               <Plus className="h-4 w-4" />
             </Button>
+            </>
+            )}
           </div>
         </div>
       </header>
+      )}
 
       {twin.walkthroughMode !== "off" && (
         <div className="pointer-events-none absolute left-1/2 top-16 z-20 -translate-x-1/2 animate-in-fade">
@@ -553,6 +637,15 @@ export function TwinWorkspace() {
                     </div>
                     )}
                   </>
+                )}
+
+                {panel === "insight" && (
+                  <TwinInsightPanel
+                    onSelectAsset={twin.selectAsset}
+                    showBim={shell.showInsightBim}
+                    showScenario={shell.showInsightScenario}
+                    showAnalytics={shell.showInsightAnalytics}
+                  />
                 )}
 
                 {panel === "sim" && (
@@ -850,18 +943,13 @@ export function TwinWorkspace() {
       )}
 
       {/* Slim status */}
+      {shell.showStatusBar && (
       <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-20 p-3 md:px-4 md:pb-3">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 rounded-full border border-white/8 bg-[#0a1018]/75 px-4 py-1.5 text-[11px] text-slate-400 backdrop-blur-md">
-          <span className="truncate">{status}</span>
-          <span className="shrink-0">
-            {timeOfDay === "day" ? "Day" : "Night"}
-            {liveWeather.weather?.temperatureC != null
-              ? ` · ${liveWeather.weather.temperatureC.toFixed(0)}°C`
-              : ""}
-            {criticalCount > 0 ? ` · ${criticalCount} critical` : ""}
-          </span>
+          <span className="truncate">{footerText}</span>
         </div>
       </footer>
+      )}
     </div>
   );
 }

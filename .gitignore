@@ -27,6 +27,11 @@ public/cesium/
 .vercel/
 *.tsbuildinfo
 
-# uploaded 3D tiles (admin)
+# uploaded 3D tiles (admin) — never commit binary uploads
 public/uploads/tilesets/*
 !public/uploads/tilesets/.gitignore
+
+# local postgres / agent scratch
+*.sql.bak
+tmp/
+.turbo/

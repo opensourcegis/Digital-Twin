@@ -552,16 +552,18 @@ export function CesiumViewer({
       }
 
       applyTimeOfDay(Cesium, viewer, "day");
-      // Opening view: close enough that ATLAS-01 and buildings read clearly
+      const home =
+        platformSettingsRef.current?.simulation.cameraHome ??
+        DEFAULT_SIMULATION.cameraHome;
       viewer.camera.flyTo({
         destination: Cesium.Cartesian3.fromDegrees(
-          CAMPUS.lon,
-          CAMPUS.lat,
-          160
+          home.lon,
+          home.lat,
+          home.height
         ),
         orientation: {
-          heading: Cesium.Math.toRadians(28),
-          pitch: Cesium.Math.toRadians(-48),
+          heading: Cesium.Math.toRadians(home.headingDeg),
+          pitch: Cesium.Math.toRadians(home.pitchDeg),
           roll: 0,
         },
         duration: 1.4,
