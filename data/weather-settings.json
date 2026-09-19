@@ -1,0 +1,5 @@
+{
+  "apiUrl": "https://api.open-meteo.com/v1/forecast?latitude=18.1795&longitude=79.476&hourly=temperature_2m,precipitation_probability,rain,visibility,wind_speed_10m,wind_direction_10m&current=temperature_2m,rain,is_day,wind_speed_10m",
+  "followDayNight": true,
+  "updatedAt": "2026-09-19T00:00:00.000Z"
+}

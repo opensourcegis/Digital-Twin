@@ -40,6 +40,7 @@ import {
 } from "@/lib/sandcastle-preset";
 import { useTwinPlatform } from "@/hooks/useTwinPlatform";
 import { useLayerCatalog } from "@/hooks/useLayerCatalog";
+import { useWeather } from "@/hooks/useWeather";
 import { OperationsPanel } from "@/components/twin/OperationsPanel";
 import { WalkthroughControls } from "@/components/twin/WalkthroughControls";
 import { TimeSlider } from "@/components/twin/TimeSlider";
@@ -54,6 +55,7 @@ import type {
 } from "@/lib/types";
 import type { WalkthroughMode } from "@/lib/twin/types";
 import { zoomCamera } from "@/lib/twin/camera-controls";
+import { weatherWetness } from "@/lib/weather/apply-weather";
 
 const CesiumViewer = dynamic(
   () =>
@@ -102,6 +104,14 @@ export function TwinWorkspace() {
   const [panel, setPanel] = useState<"layers" | "sim" | "ops" | "connect">("ops");
 
   const twin = useTwinPlatform(robot.progress);
+  const liveWeather = useWeather(true);
+  const wetness = weatherWetness(liveWeather.weather);
+
+  useEffect(() => {
+    if (!liveWeather.followDayNight) return;
+    if (liveWeather.weather?.isDay == null) return;
+    setTimeOfDay(liveWeather.weather.isDay ? "day" : "night");
+  }, [liveWeather.followDayNight, liveWeather.weather?.isDay]);
 
   const handleRobotProgress = useCallback((progress: number) => {
     setRobot((r) => (r.progress === progress ? r : { ...r, progress }));
@@ -235,12 +245,18 @@ export function TwinWorkspace() {
   return (
     <div className="relative h-[100dvh] w-full overflow-hidden bg-[#071018] text-slate-100">
       <div className="pointer-events-none absolute inset-0 z-0 twin-atmosphere" />
+      <div
+        className={cn("pointer-events-none absolute inset-0 z-[1] twin-rain", wetness > 0.08 && "twin-rain--active")}
+        style={{ ["--rain-opacity" as string]: Math.min(0.55, 0.12 + wetness * 0.5) }}
+        aria-hidden
+      />
 
       <CesiumViewer
         config={config}
         tool={tool}
         layers={layerCatalog.layers}
         timeOfDay={timeOfDay}
+        weather={liveWeather.weather}
         poles={poles}
         poleLightsOn={poleLightsOn}
         robot={robot}
@@ -288,6 +304,16 @@ export function TwinWorkspace() {
                 {twin.connected ? "Live" : "Offline"}
               </span>
               <span className="hud-chip">EPSG:4326</span>
+              {liveWeather.weather && (
+                <span className="hud-chip" title="Live Open-Meteo feed">
+                  {liveWeather.weather.temperatureC != null
+                    ? `${liveWeather.weather.temperatureC.toFixed(0)}°C`
+                    : "Wx"}
+                  {liveWeather.weather.windSpeedMps != null
+                    ? ` · ${liveWeather.weather.windSpeedMps.toFixed(0)} m/s`
+                    : ""}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -486,6 +512,8 @@ export function TwinWorkspace() {
                   connected={twin.connected}
                   robotBattery={twin.robotTelemetry?.batteryPct}
                   robotAlerts={twin.robotTelemetry?.activeAlerts}
+                  weather={liveWeather.weather}
+                  weatherError={liveWeather.error}
                   onAcknowledge={twin.acknowledgeAlert}
                   onSelectAsset={twin.selectAsset}
                 />

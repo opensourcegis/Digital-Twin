@@ -52,6 +52,8 @@ import {
 } from "@/lib/twin/pole-lights";
 import type { Alert, WalkthroughMode } from "@/lib/twin/types";
 import { TWIN_LOOK, buildingFinish } from "@/lib/twin/visual-theme";
+import type { SceneWeather } from "@/lib/weather/types";
+import { applyWeatherToScene } from "@/lib/weather/apply-weather";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type CesiumNS = any;
@@ -61,6 +63,7 @@ interface ViewerProps {
   tool: ActiveTool;
   layers: ViewerLayer[];
   timeOfDay: TimeOfDay;
+  weather?: SceneWeather | null;
   poles: PlacedPole[];
   poleLightsOn: boolean;
   robot: RobotState;
@@ -125,6 +128,7 @@ export function CesiumViewer({
   tool,
   layers,
   timeOfDay,
+  weather = null,
   poles,
   poleLightsOn,
   robot,
@@ -922,8 +926,9 @@ export function CesiumViewer({
     const viewer = viewerRef.current;
     if (!Cesium || !viewer) return;
     applyTimeOfDay(Cesium, viewer, timeOfDay);
+    applyWeatherToScene(Cesium, viewer, weather, timeOfDay);
     rebuildPoles();
-  }, [timeOfDay, applyTimeOfDay, rebuildPoles]);
+  }, [timeOfDay, weather, applyTimeOfDay, rebuildPoles]);
 
   useEffect(() => {
     rebuildPoles();

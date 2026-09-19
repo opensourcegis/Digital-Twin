@@ -4,7 +4,9 @@ import type { BmsPoint, SensorReading } from "@/lib/twin/types";
 import { SensorGauges } from "@/components/twin/SensorGauges";
 import { AlertsPanel } from "@/components/twin/AlertsPanel";
 import type { Alert } from "@/lib/twin/types";
-import { Activity, Building2, Thermometer } from "lucide-react";
+import type { SceneWeather } from "@/lib/weather/types";
+import { Activity, Building2, CloudRain, Thermometer } from "lucide-react";
+import Link from "next/link";
 
 interface OperationsPanelProps {
   readings: SensorReading[];
@@ -14,8 +16,15 @@ interface OperationsPanelProps {
   connected: boolean;
   robotBattery?: number;
   robotAlerts?: number;
+  weather?: SceneWeather | null;
+  weatherError?: string | null;
   onAcknowledge: (id: string) => void;
   onSelectAsset: (guid: string) => void;
+}
+
+function fmt(n: number | null | undefined, digits = 0, suffix = "") {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return `${n.toFixed(digits)}${suffix}`;
 }
 
 export function OperationsPanel({
@@ -26,6 +35,8 @@ export function OperationsPanel({
   connected,
   robotBattery,
   robotAlerts,
+  weather,
+  weatherError,
   onAcknowledge,
   onSelectAsset,
 }: OperationsPanelProps) {
@@ -41,6 +52,52 @@ export function OperationsPanel({
         >
           {connected ? "SSE live" : "Reconnecting…"}
         </span>
+      </div>
+
+      <div className="rounded-xl border border-sky-400/15 bg-sky-400/[0.05] p-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="flex items-center gap-1 text-[10px] uppercase tracking-[0.14em] text-sky-300/80">
+            <CloudRain className="h-3 w-3" /> Site weather
+          </p>
+          <Link href="/admin" className="text-[10px] text-slate-500 underline-offset-2 hover:text-sky-300 hover:underline">
+            Edit API
+          </Link>
+        </div>
+        {weatherError && !weather ? (
+          <p className="text-xs text-amber-300/90">{weatherError}</p>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <p className="text-slate-500">Temp</p>
+              <p className="font-display text-lg text-slate-100">
+                {fmt(weather?.temperatureC, 1, "°C")}
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-500">Rain</p>
+              <p className="font-display text-lg text-sky-200">
+                {fmt(weather?.rainMm, 1, " mm")}
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-500">Visibility</p>
+              <p className="text-slate-200">
+                {weather?.visibilityM != null
+                  ? `${(weather.visibilityM / 1000).toFixed(1)} km`
+                  : "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-500">Wind</p>
+              <p className="text-slate-200">
+                {fmt(weather?.windSpeedMps, 1, " m/s")}
+                {weather?.windDirectionDeg != null
+                  ? ` · ${Math.round(weather.windDirectionDeg)}°`
+                  : ""}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-2 text-xs">
