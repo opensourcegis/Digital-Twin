@@ -224,10 +224,13 @@ export function CesiumViewer({
   const poleEntities = useRef<Map<string, any>>(new Map());
   const poleLightCaches = useRef<PoleLightCaches>({
     poles: new Map(),
+    arms: new Map(),
+    housings: new Map(),
     lamps: new Map(),
+    glows: new Map(),
     pools: new Map(),
     hotspots: new Map(),
-    cones: new Map(),
+    beams: new Map(),
   });
   const robotHandle = useRef<AtlasRobotHandle | null>(null);
   const robotPoseRef = useRef<RobotPose>({ ...ROBOT_SPAWN });
@@ -1502,16 +1505,28 @@ export function CesiumViewer({
           const poleOn =
             polesRef.current.find((p) => p.id === id)?.lightsOn !== false &&
             poleLightsRef.current;
-          const shaft = caches.poles.get(id);
-          const lamp = caches.lamps.get(id);
+          const show = layer.visible && poleOn;
+          for (const map of [
+            caches.poles,
+            caches.arms,
+            caches.housings,
+            caches.lamps,
+            caches.glows,
+            caches.pools,
+            caches.hotspots,
+            caches.beams,
+          ]) {
+            const ent = map?.get(id);
+            if (ent) ent.show = show;
+          }
+          // Pools/beams only at night when lit
+          const night = timeOfDayRef.current === "night";
           const pool = caches.pools.get(id);
           const hot = caches.hotspots.get(id);
-          const cone = caches.cones.get(id);
-          if (shaft) shaft.show = layer.visible;
-          if (lamp) lamp.show = layer.visible;
-          if (pool) pool.show = layer.visible && poleOn;
-          if (hot) hot.show = layer.visible && poleOn;
-          if (cone) cone.show = layer.visible && poleOn;
+          const beam = caches.beams.get(id);
+          if (pool) pool.show = show && night;
+          if (hot) hot.show = show && night;
+          if (beam) beam.show = show && night;
         }
         needsRender = true;
       }
