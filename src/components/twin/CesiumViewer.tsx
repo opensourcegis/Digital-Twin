@@ -506,17 +506,17 @@ export function CesiumViewer({
       const home =
         platformSettingsRef.current?.simulation.cameraHome ??
         DEFAULT_SIMULATION.cameraHome;
+      // Skip long orbital fly when entering walk — chase cam places itself
       if (walkthroughRef.current === "walk") {
-        // Skip orbital flyTo — it fights cab view and can leave the camera in space
         viewer.camera.setView({
           destination: Cesium.Cartesian3.fromDegrees(
             home.lon,
             home.lat,
-            1.75
+            28
           ),
           orientation: {
             heading: Cesium.Math.toRadians(35),
-            pitch: Cesium.Math.toRadians(-8),
+            pitch: Cesium.Math.toRadians(-32),
             roll: 0,
           },
         });
@@ -1294,7 +1294,7 @@ export function CesiumViewer({
         canvas?.focus?.();
       }
       onStatusRef.current(
-        "Walk — WASD move · drag to look · robot cab view"
+        "Walk — WASD drive robot · drag orbit · wheel zoom"
       );
       return;
     }
