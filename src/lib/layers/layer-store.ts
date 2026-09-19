@@ -148,7 +148,7 @@ function seedCatalog(): LayerCatalog {
     }),
     mk({
       name: "ATLAS-01 robot",
-      description: "AMR unit — free roam simulation (no fixed route)",
+      description: "AMR unit — drives on campus roads (WASD / roam)",
       category: "robot-patrol",
       enabled: true,
       visible: true,
@@ -162,7 +162,7 @@ function seedCatalog(): LayerCatalog {
     }),
     mk({
       name: "External 3D Tiles",
-      description: "Ion or URL tileset mesh",
+      description: "External mesh — Focus loads AGI HQ sample if empty",
       category: "tiles-3d",
       enabled: true,
       visible: true,

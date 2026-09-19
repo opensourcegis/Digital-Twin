@@ -52,8 +52,8 @@ export function WalkthroughControls({
       </div>
       <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
         {effective === "walk"
-          ? "Chase camera on ATLAS-01 — WASD to drive (W/S move, A/D turn), drag to orbit, wheel to zoom."
-          : "Orbit the campus freely. Switch to Walk to drive the robot and watch it move."}
+          ? "Chase camera on ATLAS-01 — stays on campus roads. WASD drive (W/S move, A/D turn), drag orbit, wheel zoom."
+          : "Orbit the campus. Switch to Walk to drive the robot on roads."}
       </p>
       <div className="mt-3 grid grid-cols-2 gap-1">
         {MODES.map(({ id, label, Icon }) => (

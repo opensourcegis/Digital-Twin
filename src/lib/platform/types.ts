@@ -120,7 +120,7 @@ export const DEFAULT_SIMULATION: SimulationSettings = {
   alertSlowdownFactor: 0.5,
   batteryDrainPerTick: 0.05,
   batteryChargePerTick: 0.02,
-  defaultWalkthroughMode: "walk",
+  defaultWalkthroughMode: "off",
   spawn: {
     lon: -122.1339,
     lat: 37.42205,

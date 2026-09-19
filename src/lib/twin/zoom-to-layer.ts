@@ -6,7 +6,7 @@ export type ZoomLayerTarget = {
   key: string;
 };
 
-export function zoomCameraToLayer(
+export async function zoomCameraToLayer(
   Cesium: any,
   viewer: any,
   target: ZoomLayerTarget,
@@ -17,12 +17,26 @@ export function zoomCameraToLayer(
     poles: Map<string, any>;
     robotRoot?: any | null;
   }
-): boolean {
+): Promise<{ ok: boolean; reason?: string }> {
   const bucket = target.builtInKey ?? target.key;
 
-  if (target.builtInKey === "tileset" && opts.tileset) {
-    void viewer.zoomTo(opts.tileset);
-    return true;
+  if (target.builtInKey === "tileset") {
+    if (!opts.tileset) {
+      return {
+        ok: false,
+        reason: "Load a tileset first (Sample or paste a URL in Tiles)",
+      };
+    }
+    try {
+      opts.tileset.show = true;
+      await viewer.zoomTo(opts.tileset);
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        reason: `Tileset zoom failed: ${String(err)}`,
+      };
+    }
   }
 
   if (target.builtInKey === "poles") {
@@ -33,7 +47,7 @@ export function zoomCameraToLayer(
     }
     if (positions.length) {
       flyToPositions(Cesium, viewer, positions);
-      return true;
+      return { ok: true };
     }
   }
 
@@ -50,7 +64,7 @@ export function zoomCameraToLayer(
         ),
         duration: 1.1,
       });
-      return true;
+      return { ok: true };
     }
   }
 
@@ -79,9 +93,11 @@ export function zoomCameraToLayer(
     if (Array.isArray(polyline)) positions.push(...polyline);
   }
 
-  if (!positions.length) return false;
+  if (!positions.length) {
+    return { ok: false, reason: "No geometry to zoom for that layer" };
+  }
   flyToPositions(Cesium, viewer, positions);
-  return true;
+  return { ok: true };
 }
 
 function flyToPositions(Cesium: any, viewer: any, positions: any[]) {
