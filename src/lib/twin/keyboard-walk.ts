@@ -1,9 +1,13 @@
 import { snapToCampusRoads } from "@/lib/twin/campus-roads";
+import {
+  offsetPoseEnu,
+  sampleSurfaceHeightEnu,
+} from "@/lib/twin/geo-frame";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type CesiumNS = any;
 
-/** Campus walk bounds (EPSG:4326) — keep robot on site in demo mode */
+/** Campus walk bounds (EPSG:4326 / WGS84) — keep robot on site in demo mode */
 export const CAMPUS_WALK_BOUNDS = {
   minLon: -122.1362,
   maxLon: -122.1318,
@@ -22,19 +26,19 @@ export function isWalkChasePaused() {
   return performance.now() < chaseHoldUntil;
 }
 
-const MOVE_SPEED_M_S = 8;
+const MOVE_SPEED_M_S = 6;
 const TURN_RATE_RAD = 1.8;
 const LOOK_SENS = 0.005;
 const ZOOM_SENS = 0.04;
 
 /** Chase camera — zoomed out enough to see the robot body move. */
-const CHASE_BACK_M = 28;
-const CHASE_UP_M = 16;
-const CHASE_PITCH = (-32 * Math.PI) / 180;
-const CHASE_BACK_MIN = 12;
-const CHASE_BACK_MAX = 55;
-const CHASE_UP_MIN = 8;
-const CHASE_UP_MAX = 32;
+const CHASE_BACK_M = 14;
+const CHASE_UP_M = 8;
+const CHASE_PITCH = (-28 * Math.PI) / 180;
+const CHASE_BACK_MIN = 6;
+const CHASE_BACK_MAX = 36;
+const CHASE_UP_MIN = 4;
+const CHASE_UP_MAX = 20;
 
 const MOVE_KEYS = new Set([
   "arrowup",
@@ -53,12 +57,6 @@ export function isMoveKey(key: string): boolean {
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
-}
-
-function metersToLonLat(eastM: number, northM: number, lat: number) {
-  const mPerDegLat = 110540;
-  const mPerDegLon = 111320 * Math.cos((lat * Math.PI) / 180);
-  return { dLon: eastM / mPerDegLon, dLat: northM / mPerDegLat };
 }
 
 export interface WalkPose {
@@ -80,13 +78,13 @@ export interface WalkAttachOptions {
   getSurfaceMode?: () => WalkSurfaceMode;
   /** Exclude robot entities from height sampling */
   getExcludeObjects?: () => any[];
+  /** Active 3D Tileset for WGS84 height banding */
+  getTileset?: () => any | null;
   /** When false, left-drag won't orbit (e.g. while click-to-place is active) */
   getAllowOrbitDrag?: () => boolean;
 }
 
-/**
- * Sample ground/tileset height. Never launches upward more than a small step.
- */
+/** @deprecated Prefer sampleSurfaceHeightEnu from geo-frame */
 export function sampleSurfaceHeight(
   Cesium: CesiumNS,
   viewer: any,
@@ -95,41 +93,11 @@ export function sampleSurfaceHeight(
   fallbackH: number,
   exclude: any[] = []
 ): number {
-  let h = fallbackH;
-  try {
-    if (viewer.scene.clampToHeightSupported) {
-      // Probe from slightly above current height only — prevents sky launches
-      const probe = Cesium.Cartesian3.fromDegrees(
-        lon,
-        lat,
-        fallbackH + 8
-      );
-      const clamped = viewer.scene.clampToHeight(probe, exclude);
-      if (clamped) {
-        const c = Cesium.Cartographic.fromCartesian(clamped);
-        if (c && Number.isFinite(c.height)) h = c.height + 0.4;
-      }
-    } else if (viewer.scene.sampleHeightSupported) {
-      const carto = Cesium.Cartographic.fromDegrees(lon, lat);
-      const sampled = viewer.scene.sampleHeight(carto, exclude);
-      if (typeof sampled === "number" && Number.isFinite(sampled)) {
-        h = sampled + 0.4;
-      }
-    } else {
-      const carto = Cesium.Cartographic.fromDegrees(lon, lat);
-      const globeH = viewer.scene.globe?.getHeight?.(carto);
-      if (typeof globeH === "number" && Number.isFinite(globeH)) {
-        h = globeH + 0.4;
-      }
-    }
-  } catch {
-    return Math.max(0.12, fallbackH);
-  }
-  // Hard cap per-sample change so bad picks can't fling the robot skyward
-  const maxStep = 3;
-  if (h > fallbackH + maxStep) h = fallbackH + maxStep;
-  if (h < fallbackH - maxStep) h = fallbackH - maxStep;
-  return Math.max(0.05, h);
+  return sampleSurfaceHeightEnu(Cesium, viewer, lon, lat, fallbackH, {
+    exclude,
+    maxClimbM: 0.6,
+    maxDropM: 2.5,
+  });
 }
 
 /**
@@ -155,13 +123,18 @@ export function applyWalkCamera(
   const robotPos = Cesium.Cartesian3.fromDegrees(
     pose.lon,
     pose.lat,
-    Math.max(0.05, pose.height)
+    Math.max(0.05, pose.height),
+    Cesium.Ellipsoid.WGS84
   );
 
   // Cancel any in-flight zoom/fly that would arc through space
   viewer.camera.cancelFlight?.();
 
-  const enu = Cesium.Transforms.eastNorthUpToFixedFrame(robotPos);
+  const enu = Cesium.Transforms.eastNorthUpToFixedFrame(
+    robotPos,
+    Cesium.Ellipsoid.WGS84
+  );
+  // ENU: +X east, +Y north, +Z up — stay behind robot along heading
   const local = new Cesium.Cartesian3(
     -Math.sin(viewHeading) * backM,
     -Math.cos(viewHeading) * backM,
@@ -232,6 +205,7 @@ export function attachKeyboardWalk(
 
   const getSurfaceMode = () => options?.getSurfaceMode?.() ?? "campus";
   const getExclude = () => options?.getExcludeObjects?.() ?? [];
+  const getTileset = () => options?.getTileset?.() ?? null;
   const getAllowOrbit = () => options?.getAllowOrbitDrag?.() ?? true;
 
   const camOpts = () => ({
@@ -308,22 +282,24 @@ export function attachKeyboardWalk(
       while (pose.heading > Math.PI) pose.heading -= Math.PI * 2;
       while (pose.heading < -Math.PI) pose.heading += Math.PI * 2;
 
+      // Heading 0 = north, π/2 = east — move on ENU tangent (WGS84), never +up
       let east = 0;
       let north = 0;
-      const h = pose.heading;
+      const hdg = pose.heading;
       const distF = MOVE_SPEED_M_S * dt;
       if (forward) {
-        east += Math.sin(h) * distF;
-        north += Math.cos(h) * distF;
+        east += Math.sin(hdg) * distF;
+        north += Math.cos(hdg) * distF;
       }
       if (back) {
-        east -= Math.sin(h) * distF;
-        north -= Math.cos(h) * distF;
+        east -= Math.sin(hdg) * distF;
+        north -= Math.cos(hdg) * distF;
       }
       if (east !== 0 || north !== 0) {
-        const { dLon, dLat } = metersToLonLat(east, north, pose.lat);
-        let lon = pose.lon + dLon;
-        let lat = pose.lat + dLat;
+        // upM = 0 → stay on local tangent plane (fixes WS “flying upward”)
+        const stepped = offsetPoseEnu(Cesium, pose, east, north, 0);
+        let lon = stepped.lon;
+        let lat = stepped.lat;
         if (surface === "campus") {
           lon = clamp(lon, CAMPUS_WALK_BOUNDS.minLon, CAMPUS_WALK_BOUNDS.maxLon);
           lat = clamp(lat, CAMPUS_WALK_BOUNDS.minLat, CAMPUS_WALK_BOUNDS.maxLat);
@@ -331,13 +307,18 @@ export function attachKeyboardWalk(
           lon = snapped.lon;
           lat = snapped.lat;
         }
-        const height = sampleSurfaceHeight(
+        const height = sampleSurfaceHeightEnu(
           Cesium,
           viewer,
           lon,
           lat,
           pose.height,
-          getExclude()
+          {
+            exclude: getExclude(),
+            tileset: surface === "tileset" ? getTileset() : null,
+            maxClimbM: 0.45,
+            maxDropM: 2.2,
+          }
         );
         pose = { ...pose, lon, lat, height };
       } else {

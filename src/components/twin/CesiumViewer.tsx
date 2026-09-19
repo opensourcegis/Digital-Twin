@@ -28,6 +28,10 @@ import {
 } from "@/lib/twin/keyboard-walk";
 import { pickSurfaceCartesian } from "@/lib/twin/pick-surface";
 import {
+  sampleSurfaceHeightEnu,
+  tilesetHeightBand,
+} from "@/lib/twin/geo-frame";
+import {
   attachCameraControls,
   clearUserCameraControl,
   isUserControllingCamera,
@@ -592,9 +596,7 @@ export function CesiumViewer({
         if (t === "robot-waypoints") {
           const hit = pickSurfaceCartesian(Cesium, viewer, movement.position, {
             tileset: tilesetRef.current,
-            exclude: robotHandle.current?.root
-              ? [robotHandle.current.root]
-              : [],
+            exclude: robotHandle.current?.entities ?? [],
           });
           if (!hit) {
             onStatusRef.current("Click a surface (tileset or ground) to place");
@@ -972,8 +974,8 @@ export function CesiumViewer({
           {
             getSurfaceMode: () =>
               tilesetRef.current ? "tileset" : "campus",
-            getExcludeObjects: () =>
-              robotHandle.current?.root ? [robotHandle.current.root] : [],
+            getTileset: () => tilesetRef.current,
+            getExcludeObjects: () => robotHandle.current?.entities ?? [],
             getAllowOrbitDrag: () => toolRef.current !== "robot-waypoints",
           }
         );
@@ -1049,7 +1051,7 @@ export function CesiumViewer({
       const detail = (e as CustomEvent<ZoomLayerTarget>).detail;
       if (!detail?.configId) return;
       // Leave chase cam so zoom-to sticks (esp. external tilesets)
-      pauseWalkChase(12_000);
+      pauseWalkChase(20_000);
       markUserCameraControl(viewer);
 
       const runZoom = async (attempt: number): Promise<void> => {
@@ -1270,9 +1272,13 @@ export function CesiumViewer({
           );
           const tileset = await Cesium.Cesium3DTileset.fromUrl(url);
           if (cancelled) return;
+          // Prefer finer LOD so external mesh is visible after zoom
+          if ("maximumScreenSpaceError" in tileset) {
+            tileset.maximumScreenSpaceError = 8;
+          }
           viewer.scene.primitives.add(tileset);
           tilesetRef.current = tileset;
-          pauseWalkChase(12_000);
+          pauseWalkChase(20_000);
           markUserCameraControl(viewer);
 
           const zoomResult = await zoomCameraToLayer(
@@ -1293,11 +1299,52 @@ export function CesiumViewer({
           );
 
           if (cancelled) return;
+
+          // Place robot on tileset center (WGS84 ellipsoidal height)
+          try {
+            const bs = tileset.boundingSphere;
+            if (bs?.center) {
+              const c = Cesium.Cartographic.fromCartesian(
+                bs.center,
+                Cesium.Ellipsoid.WGS84
+              );
+              if (c) {
+                const lon = Cesium.Math.toDegrees(c.longitude);
+                const lat = Cesium.Math.toDegrees(c.latitude);
+                const band = tilesetHeightBand(Cesium, tileset);
+                const seedH = band?.mid ?? c.height ?? 0;
+                const height = sampleSurfaceHeightEnu(
+                  Cesium,
+                  viewer,
+                  lon,
+                  lat,
+                  seedH,
+                  {
+                    exclude: robotHandle.current?.entities ?? [],
+                    tileset,
+                    maxClimbM: 40,
+                    maxDropM: 40,
+                  }
+                );
+                const next = {
+                  ...robotPoseRef.current,
+                  lon,
+                  lat,
+                  height,
+                };
+                robotPoseRef.current = next;
+                robotHandle.current?.update(next);
+              }
+            }
+          } catch (placeErr) {
+            console.warn("Place robot on tileset failed", placeErr);
+          }
+
           if (zoomResult.ok) {
             onStatusRef.current(
               isSample
-                ? "Sample tileset loaded — zoomed to AGI HQ"
-                : "3D Tiles loaded — zoomed in"
+                ? "Sample tileset loaded — zoomed to AGI HQ (WGS84)"
+                : "3D Tiles loaded — zoomed in (WGS84)"
             );
           } else {
             onStatusRef.current(

@@ -6,7 +6,7 @@ export type ZoomLayerTarget = {
   key: string;
 };
 
-const TILESET_READY_MS = 12_000;
+const TILESET_READY_MS = 15_000;
 
 async function waitForTilesetReady(
   Cesium: any,
@@ -37,8 +37,8 @@ async function waitForTilesetReady(
     }
   }
 
-  // Ensure bounding sphere is usable (radius > 0)
-  const deadline = Date.now() + Math.min(timeoutMs, 8_000);
+  // Wait until WGS84 bounding sphere is valid (georeferenced ECEF center)
+  const deadline = Date.now() + Math.min(timeoutMs, 10_000);
   while (Date.now() < deadline) {
     const bs = tileset.boundingSphere;
     if (
@@ -48,9 +48,23 @@ async function waitForTilesetReady(
       bs.center &&
       !Cesium.Cartesian3.equals(bs.center, Cesium.Cartesian3.ZERO)
     ) {
-      return { ok: true };
+      // Confirm center is a plausible ECEF point (not local-only)
+      const mag = Cesium.Cartesian3.magnitude(bs.center);
+      if (mag > 1_000_000) {
+        return { ok: true };
+      }
+      // Local/RTC tileset — still zoomable via model matrix
+      if (tileset.modelMatrix || tileset.root) {
+        return { ok: true };
+      }
     }
-    await new Promise((r) => setTimeout(r, 80));
+    // Kick a render so tileset can resolve BV
+    try {
+      tileset.show = true;
+    } catch {
+      /* ignore */
+    }
+    await new Promise((r) => setTimeout(r, 100));
   }
 
   const bs = tileset.boundingSphere;
@@ -60,10 +74,14 @@ async function waitForTilesetReady(
   return {
     ok: false,
     reason:
-      "Tileset bounding sphere not available yet — tiles may still be loading",
+      "Tileset bounding sphere not available — check URL / CRS (expects WGS84 georeferenced 3D Tiles)",
   };
 }
 
+/**
+ * Zoom camera to tileset using WGS84 ECEF bounding sphere.
+ * Instant view first (so Walk chase can't steal the frame), then ease.
+ */
 async function flyToTileset(
   Cesium: any,
   viewer: any,
@@ -78,23 +96,42 @@ async function flyToTileset(
     throw new Error(ready.reason ?? "Tileset not ready");
   }
 
+  // Give content a moment to refine geometric error / root transform
+  await new Promise((r) => setTimeout(r, 200));
+  viewer.scene.requestRender();
+
   const bs = tileset.boundingSphere;
-  if (bs && Number.isFinite(bs.radius) && bs.radius > 0) {
-    const range = Math.max(bs.radius * 2.6, 120);
-    await viewer.camera.flyToBoundingSphere(bs, {
-      duration: 1.35,
-      offset: new Cesium.HeadingPitchRange(
-        0,
-        Cesium.Math.toRadians(-42),
-        range
-      ),
-    });
-    viewer.scene.requestRender();
-    return;
+  if (!bs || !(bs.radius > 0)) {
+    throw new Error("Tileset has no bounding sphere (bad CRS or empty tileset)");
   }
 
-  // Last resort: viewer.zoomTo
-  await viewer.zoomTo(tileset);
+  const range = Math.max(bs.radius * 2.2, 80);
+  const offset = new Cesium.HeadingPitchRange(
+    0,
+    Cesium.Math.toRadians(-38),
+    range
+  );
+
+  viewer.camera.cancelFlight?.();
+
+  // Instant snap — survives Walk chase / requestRenderMode races
+  if (typeof viewer.camera.viewBoundingSphere === "function") {
+    viewer.camera.viewBoundingSphere(bs, offset);
+    viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+  } else {
+    viewer.camera.flyToBoundingSphere(bs, { duration: 0, offset });
+  }
+  viewer.scene.requestRender();
+
+  // Soft ease for polish (non-fatal if interrupted)
+  try {
+    await viewer.camera.flyToBoundingSphere(bs, {
+      duration: 1.15,
+      offset,
+    });
+  } catch {
+    /* already at destination */
+  }
   viewer.scene.requestRender();
 }
 
