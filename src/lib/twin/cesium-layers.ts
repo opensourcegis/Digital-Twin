@@ -1,4 +1,5 @@
 import { BUILDING_GUID_BY_CODE } from "./asset-map";
+import { TWIN_LOOK, buildingFinish } from "./visual-theme";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -13,21 +14,22 @@ export function applyBuildingSymbology(
     const props = ent.properties;
     const code = props?.id?.getValue?.() ?? props?.id;
     const guid = BUILDING_GUID_BY_CODE[code];
-    if (!guid || !ent.polygon) continue;
-    const sym = symbology[guid];
-    const base =
-      sym?.color ??
-      (props?.use?.getValue?.() === "lab"
-        ? "#3d8b8b"
-        : props?.use?.getValue?.() === "utility"
-          ? "#7a6a4f"
-          : "#4a6d7c");
-    ent.polygon.material = Cesium.Color.fromCssColorString(base).withAlpha(
-      sym?.pulse ? 0.75 : 0.92
+    if (!ent.polygon) continue;
+    const use = props?.use?.getValue?.() ?? props?.use;
+    const architectural = buildingFinish(typeof use === "string" ? use : undefined);
+    const sym = guid ? symbology[guid] : undefined;
+    // Alert tint only — never neon-green healthy buildings
+    const color = sym?.pulse || sym?.color === "#e57373" || sym?.color === "#e2b15a"
+      ? sym.color
+      : architectural;
+    ent.polygon.material = Cesium.Color.fromCssColorString(color).withAlpha(
+      sym?.pulse ? 0.72 : TWIN_LOOK.buildings.alpha
     );
-    ent.polygon.outlineColor = sym?.pulse
-      ? Cesium.Color.fromCssColorString("#ef4444")
-      : Cesium.Color.fromCssColorString("#d7e3ea");
+    ent.polygon.outlineColor = Cesium.Color.fromCssColorString(
+      sym?.pulse
+        ? TWIN_LOOK.buildings.alertOutline
+        : TWIN_LOOK.buildings.outline
+    ).withAlpha(TWIN_LOOK.buildings.outlineAlpha);
   }
 }
 
@@ -40,9 +42,11 @@ export function applySensorSymbology(
     const guid = ent.properties?.guid?.getValue?.() ?? ent.properties?.guid;
     if (!guid || !ent.point) continue;
     const sym = symbology[guid];
-    const color = sym?.color ?? "#2dd4bf";
+    const color = sym?.color ?? TWIN_LOOK.sensors.ok;
     ent.point.color = Cesium.Color.fromCssColorString(color);
-    ent.point.pixelSize = sym?.pulse ? 14 : 10;
+    ent.point.pixelSize = sym?.pulse
+      ? TWIN_LOOK.sensors.size + 3
+      : TWIN_LOOK.sensors.size;
   }
 }
 
@@ -64,25 +68,28 @@ export async function loadTwinLayers(
   const utilityEntities: any[] = [];
   for (const f of utilities.features) {
     const positions = (f.geometry.coordinates as number[][]).map(
-      ([lon, lat]) => Cesium.Cartesian3.fromDegrees(lon, lat, -1.5)
+      ([lon, lat]) => Cesium.Cartesian3.fromDegrees(lon, lat, -1.2)
     );
     const kind = f.properties.kind as string;
     const color =
       kind === "steam"
-        ? "#f97316"
+        ? TWIN_LOOK.utilities.steam
         : kind === "storm"
-          ? "#3b82f6"
-          : "#eab308";
+          ? TWIN_LOOK.utilities.storm
+          : TWIN_LOOK.utilities.power;
     utilityEntities.push(
       viewer.entities.add({
         name: f.properties.name,
         polyline: {
           positions,
-          width: 4,
-          material: Cesium.Color.fromCssColorString(color).withAlpha(0.7),
+          width: TWIN_LOOK.utilities.width,
+          material: Cesium.Color.fromCssColorString(color).withAlpha(
+            TWIN_LOOK.utilities.alpha
+          ),
           clampToGround: false,
         },
         properties: { ...f.properties, subsurface: true },
+        show: false, // off by default — looks like a "route" when on
       })
     );
   }
@@ -97,9 +104,13 @@ export async function loadTwinLayers(
           hierarchy: coords.map(([lon, lat]) =>
             Cesium.Cartesian3.fromDegrees(lon, lat, 0)
           ),
-          material: Cesium.Color.fromCssColorString("#1e3a2f").withAlpha(0.25),
+          material: Cesium.Color.fromCssColorString(
+            TWIN_LOOK.terrain.fill
+          ).withAlpha(TWIN_LOOK.terrain.alpha),
           outline: true,
-          outlineColor: Cesium.Color.fromCssColorString("#334155").withAlpha(0.4),
+          outlineColor: Cesium.Color.fromCssColorString(
+            TWIN_LOOK.terrain.outline
+          ).withAlpha(0.25),
           height: 0,
         },
         properties: f.properties,
@@ -115,22 +126,26 @@ export async function loadTwinLayers(
         name: s.name,
         position: Cesium.Cartesian3.fromDegrees(s.lon, s.lat, s.height),
         point: {
-          pixelSize: 10,
-          color: Cesium.Color.fromCssColorString("#2dd4bf"),
-          outlineColor: Cesium.Color.WHITE,
-          outlineWidth: 2,
+          pixelSize: TWIN_LOOK.sensors.size,
+          color: Cesium.Color.fromCssColorString(TWIN_LOOK.sensors.ok),
+          outlineColor: Cesium.Color.fromCssColorString("#0f172a"),
+          outlineWidth: 1,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
         label: {
-          text: s.metric,
-          font: "10px DM Sans, sans-serif",
-          fillColor: Cesium.Color.WHITE,
-          outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 2,
-          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          text: s.metric.replace(/_/g, " "),
+          font: "600 9px DM Sans, sans-serif",
+          fillColor: Cesium.Color.fromCssColorString("#e2e8f0"),
+          showBackground: true,
+          backgroundColor: Cesium.Color.fromCssColorString("#0f172a").withAlpha(
+            0.65
+          ),
+          backgroundPadding: new Cesium.Cartesian2(6, 4),
+          style: Cesium.LabelStyle.FILL,
           verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-          pixelOffset: new Cesium.Cartesian2(0, -10),
+          pixelOffset: new Cesium.Cartesian2(0, -12),
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          scaleByDistance: new Cesium.NearFarScalar(200, 1.0, 2500, 0.35),
         },
         properties: { guid: s.guid, metric: s.metric },
       })

@@ -205,7 +205,7 @@ export class TwinStore {
       const asset = this.assets.get(sensor.assetGuid);
       if (!asset) continue;
       const { warning, critical, direction } = sensor.thresholds;
-      let color = "#4ade80";
+      let color = "#94a3b8";
       let pulse = false;
       const over =
         direction === "high"
@@ -219,13 +219,16 @@ export class TwinStore {
             : r.value <= warning
               ? "warning"
               : "ok";
-      if (over === "warning") color = "#fbbf24";
+      if (over === "warning") color = "#e2b15a";
       if (over === "critical") {
-        color = "#ef4444";
+        color = "#e57373";
         pulse = true;
       }
-      sym[asset.guid] = { color, pulse };
+      // Healthy assets keep architectural finish — only paint buildings on alert
       sym[r.sensorGuid] = { color, pulse };
+      if (over !== "ok") {
+        sym[asset.guid] = { color, pulse };
+      }
     }
     for (const a of snap.alerts.filter((x) => x.severity === "critical")) {
       sym[a.assetGuid] = { color: "#ef4444", pulse: true };

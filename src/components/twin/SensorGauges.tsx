@@ -23,12 +23,18 @@ export function SensorGauges({ readings, symbology }: SensorGaugesProps) {
     <div className="grid grid-cols-2 gap-2">
       {readings.map((r) => {
         const sym = symbology[r.sensorGuid];
-        const color = sym?.color ?? "#4ade80";
+        const color = sym?.color ?? "#94a3b8";
+        const display =
+          r.quality === "timeout"
+            ? "—"
+            : r.metric === "occupancy"
+              ? Math.round(Number(r.value))
+              : r.value;
         return (
           <div
             key={r.sensorGuid}
             className={cn(
-              "rounded-xl border border-white/5 bg-white/[0.03] p-2.5",
+              "rounded-lg border border-white/5 bg-white/[0.03] p-2.5",
               sym?.pulse && "animate-pulse"
             )}
           >
@@ -37,13 +43,15 @@ export function SensorGauges({ readings, symbology }: SensorGaugesProps) {
                 {METRIC_LABELS[r.metric] ?? r.metric}
               </span>
               <span
-                className="h-2 w-2 shrink-0 rounded-full"
+                className="h-1.5 w-1.5 shrink-0 rounded-full"
                 style={{ backgroundColor: color }}
               />
             </div>
             <p className="mt-1 font-display text-lg leading-none text-white">
-              {r.quality === "timeout" ? "—" : r.value}
-              <span className="ml-0.5 text-xs text-slate-400">{r.unit}</span>
+              {display}
+              {r.quality !== "timeout" && (
+                <span className="ml-0.5 text-xs text-slate-400">{r.unit}</span>
+              )}
             </p>
             <p className="mt-1 truncate text-[10px] text-slate-500">
               {r.quality !== "good" ? r.quality : "live"}

@@ -51,6 +51,7 @@ import {
   type PoleLightCaches,
 } from "@/lib/twin/pole-lights";
 import type { Alert, WalkthroughMode } from "@/lib/twin/types";
+import { TWIN_LOOK, buildingFinish } from "@/lib/twin/visual-theme";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type CesiumNS = any;
@@ -226,34 +227,42 @@ export function CesiumViewer({
         );
         viewer.clock.shouldAnimate = false;
         scene.light = new Cesium.SunLight({ color: Cesium.Color.WHITE });
-        scene.globe.baseColor = Cesium.Color.fromCssColorString("#1a2a1f");
+        scene.globe.baseColor = Cesium.Color.fromCssColorString(
+          TWIN_LOOK.globe.dayBase
+        );
         if (scene.skyAtmosphere) {
-          scene.skyAtmosphere.hueShift = -0.02;
-          scene.skyAtmosphere.saturationShift = 0.05;
-          scene.skyAtmosphere.brightnessShift = 0.08;
+          scene.skyAtmosphere.hueShift = -0.04;
+          scene.skyAtmosphere.saturationShift = -0.05;
+          scene.skyAtmosphere.brightnessShift = 0.02;
         }
         scene.fog.enabled = true;
-        scene.fog.density = 0.0002;
-        scene.backgroundColor = Cesium.Color.fromCssColorString("#87a8c4");
+        scene.fog.density = 0.00018;
+        scene.backgroundColor = Cesium.Color.fromCssColorString(
+          TWIN_LOOK.globe.daySky
+        );
       } else {
         viewer.clock.currentTime = Cesium.JulianDate.fromDate(
           new Date(Date.UTC(2024, 5, 21, 8, 30, 0))
         );
         viewer.clock.shouldAnimate = false;
         scene.light = new Cesium.DirectionalLight({
-          direction: new Cesium.Cartesian3(0.15, 0.35, -0.9),
-          color: Cesium.Color.fromCssColorString("#6b7cff"),
-          intensity: 0.35,
+          direction: new Cesium.Cartesian3(0.2, 0.4, -0.85),
+          color: Cesium.Color.fromCssColorString("#9eb6d4"),
+          intensity: 0.4,
         });
-        scene.globe.baseColor = Cesium.Color.fromCssColorString("#060a12");
+        scene.globe.baseColor = Cesium.Color.fromCssColorString(
+          TWIN_LOOK.globe.nightBase
+        );
         if (scene.skyAtmosphere) {
-          scene.skyAtmosphere.hueShift = -0.25;
-          scene.skyAtmosphere.saturationShift = -0.15;
-          scene.skyAtmosphere.brightnessShift = -0.45;
+          scene.skyAtmosphere.hueShift = -0.18;
+          scene.skyAtmosphere.saturationShift = -0.2;
+          scene.skyAtmosphere.brightnessShift = -0.4;
         }
         scene.fog.enabled = true;
-        scene.fog.density = 0.00045;
-        scene.backgroundColor = Cesium.Color.fromCssColorString("#04060d");
+        scene.fog.density = 0.0004;
+        scene.backgroundColor = Cesium.Color.fromCssColorString(
+          TWIN_LOOK.globe.nightSky
+        );
       }
       scene.requestRender();
     },
@@ -384,23 +393,20 @@ export function CesiumViewer({
           Cesium.Cartesian3.fromDegrees(lon, lat, 0)
         );
         const height = f.properties.height || 20;
-        const color =
-          f.properties.use === "lab"
-            ? "#3d8b8b"
-            : f.properties.use === "warehouse"
-              ? "#5c6b7a"
-              : f.properties.use === "utility"
-                ? "#7a6a4f"
-                : "#4a6d7c";
+        const color = buildingFinish(f.properties.use);
         buildingEntities.push(
           viewer.entities.add({
             name: f.properties.name,
             polygon: {
               hierarchy,
               extrudedHeight: height,
-              material: Cesium.Color.fromCssColorString(color).withAlpha(0.92),
+              material: Cesium.Color.fromCssColorString(color).withAlpha(
+                TWIN_LOOK.buildings.alpha
+              ),
               outline: true,
-              outlineColor: Cesium.Color.fromCssColorString("#d7e3ea"),
+              outlineColor: Cesium.Color.fromCssColorString(
+                TWIN_LOOK.buildings.outline
+              ).withAlpha(TWIN_LOOK.buildings.outlineAlpha),
               closeTop: true,
               closeBottom: true,
             },
@@ -413,15 +419,20 @@ export function CesiumViewer({
       const roadEntities: any[] = [];
       for (const f of roads.features) {
         const positions = (f.geometry.coordinates as number[][]).map(
-          ([lon, lat]) => Cesium.Cartesian3.fromDegrees(lon, lat, 0.5)
+          ([lon, lat]) => Cesium.Cartesian3.fromDegrees(lon, lat, 0.35)
         );
+        const primary = f.properties.class === "primary";
         roadEntities.push(
           viewer.entities.add({
             name: f.properties.name,
             polyline: {
               positions,
-              width: f.properties.class === "primary" ? 8 : 5,
-              material: Cesium.Color.fromCssColorString("#e8eef2").withAlpha(0.85),
+              width: primary
+                ? TWIN_LOOK.roads.widthPrimary
+                : TWIN_LOOK.roads.widthSecondary,
+              material: Cesium.Color.fromCssColorString(
+                primary ? TWIN_LOOK.roads.primary : TWIN_LOOK.roads.secondary
+              ).withAlpha(TWIN_LOOK.roads.alpha),
             },
             properties: f.properties,
           })
@@ -437,22 +448,26 @@ export function CesiumViewer({
             name: f.properties.name,
             position: Cesium.Cartesian3.fromDegrees(lon, lat, 2),
             point: {
-              pixelSize: 10,
-              color: Cesium.Color.fromCssColorString("#2dd4bf"),
-              outlineColor: Cesium.Color.WHITE,
-              outlineWidth: 2,
+              pixelSize: TWIN_LOOK.pois.size,
+              color: Cesium.Color.fromCssColorString(TWIN_LOOK.pois.color),
+              outlineColor: Cesium.Color.fromCssColorString("#0f172a"),
+              outlineWidth: 1,
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
             },
             label: {
               text: f.properties.name,
-              font: "11px DM Sans, sans-serif",
-              fillColor: Cesium.Color.WHITE,
-              outlineColor: Cesium.Color.BLACK,
-              outlineWidth: 3,
-              style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+              font: "600 10px DM Sans, sans-serif",
+              fillColor: Cesium.Color.fromCssColorString("#f1f5f9"),
+              showBackground: true,
+              backgroundColor: Cesium.Color.fromCssColorString(
+                "#0f172a"
+              ).withAlpha(0.7),
+              backgroundPadding: new Cesium.Cartesian2(7, 4),
+              style: Cesium.LabelStyle.FILL,
               verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
               pixelOffset: new Cesium.Cartesian2(0, -12),
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
+              scaleByDistance: new Cesium.NearFarScalar(150, 1.0, 2200, 0.3),
             },
             properties: f.properties,
           })
@@ -513,18 +528,19 @@ export function CesiumViewer({
       }
 
       applyTimeOfDay(Cesium, viewer, "day");
+      // Opening view: close enough that ATLAS-01 and buildings read clearly
       viewer.camera.flyTo({
         destination: Cesium.Cartesian3.fromDegrees(
           CAMPUS.lon,
           CAMPUS.lat,
-          CAMPUS.height
+          160
         ),
         orientation: {
-          heading: Cesium.Math.toRadians(35),
-          pitch: Cesium.Math.toRadians(-55),
+          heading: Cesium.Math.toRadians(28),
+          pitch: Cesium.Math.toRadians(-48),
           roll: 0,
         },
-        duration: 1.2,
+        duration: 1.4,
       });
 
       viewerRef.current = viewer;
@@ -1249,17 +1265,25 @@ export function CesiumViewer({
           viewer.entities.add({
             position: Cesium.Cartesian3.fromDegrees(a.lon!, a.lat!, (a.height ?? 0) + 8),
             ellipsoid: {
-              radii: new Cesium.Cartesian3(6, 6, 6),
+              radii: new Cesium.Cartesian3(5, 5, 5),
               material: Cesium.Color.fromCssColorString(
-                a.severity === "critical" ? "#ef4444" : "#fbbf24"
-              ).withAlpha(0.35),
+                a.severity === "critical" ? "#e57373" : "#e2b15a"
+              ).withAlpha(0.28),
               outline: true,
-              outlineColor: Cesium.Color.fromCssColorString("#ef4444"),
+              outlineColor: Cesium.Color.fromCssColorString(
+                a.severity === "critical" ? "#e57373" : "#e2b15a"
+              ).withAlpha(0.7),
             },
             label: {
-              text: "⚠",
-              font: "16px sans-serif",
+              text: a.severity === "critical" ? "ALERT" : "WARN",
+              font: "600 10px DM Sans, sans-serif",
               fillColor: Cesium.Color.WHITE,
+              showBackground: true,
+              backgroundColor: Cesium.Color.fromCssColorString("#0f172a").withAlpha(
+                0.75
+              ),
+              backgroundPadding: new Cesium.Cartesian2(6, 3),
+              pixelOffset: new Cesium.Cartesian2(0, -18),
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
             },
           })

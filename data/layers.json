@@ -90,8 +90,8 @@
       "description": "Steam, storm, electrical feeds",
       "category": "subsurface-utilities",
       "enabled": true,
-      "visible": true,
-      "opacity": 0.7,
+      "visible": false,
+      "opacity": 0.4,
       "zOrder": 20,
       "coordinateSystem": "EPSG:4326",
       "builtInKey": "utilities"

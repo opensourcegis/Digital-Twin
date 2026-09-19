@@ -32,7 +32,7 @@ export function createAtlasRobot(
     heading: start.heading ?? 0,
   };
 
-  const SCALE = 1.8; // campus-readable size
+  const SCALE = 2.4; // campus-readable size
   const entities: any[] = [];
 
   const root = viewer.entities.add({
@@ -42,8 +42,8 @@ export function createAtlasRobot(
     // Always-visible marker so the unit never "disappears" from orbit
     billboard: {
       image: makeRobotBillboard(),
-      width: 48,
-      height: 48,
+      width: 56,
+      height: 56,
       verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
       pixelOffset: new Cesium.Cartesian2(0, -8),
       disableDepthTestDistance: Number.POSITIVE_INFINITY,

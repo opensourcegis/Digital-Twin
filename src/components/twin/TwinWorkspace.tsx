@@ -61,10 +61,10 @@ const CesiumViewer = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="absolute inset-0 grid place-items-center bg-[#0b1220] text-slate-300">
+      <div className="absolute inset-0 grid place-items-center bg-[#0a1018] text-slate-300">
         <div className="text-center">
-          <div className="mx-auto mb-3 h-10 w-10 animate-pulse rounded-full bg-teal-500/30" />
-          <p className="font-display text-lg tracking-wide text-teal-200">
+          <div className="mx-auto mb-3 h-8 w-8 animate-pulse rounded-md bg-teal-500/25" />
+          <p className="font-display text-base tracking-wide text-slate-200">
             Opening twin…
           </p>
         </div>
@@ -265,7 +265,7 @@ export function TwinWorkspace() {
       <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 p-3 md:p-4">
         <div className="pointer-events-auto glass-panel rounded-xl px-3.5 py-2.5">
           <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-lg bg-gradient-to-br from-teal-400 to-cyan-700 text-slate-950 shadow-lg shadow-teal-500/15">
+            <div className="grid h-9 w-9 place-items-center rounded-md bg-gradient-to-br from-slate-200 to-slate-500 text-slate-950">
               <Layers className="h-4 w-4" />
             </div>
             <div>
@@ -273,7 +273,7 @@ export function TwinWorkspace() {
                 TwinBench
               </p>
               <p className="mt-1 text-[11px] text-slate-400">
-                Genesis Campus · Digital Twin Platform
+                Genesis Campus · Operations twin
               </p>
             </div>
             <div className="ml-2 hidden items-center gap-2 border-l border-white/10 pl-3 sm:flex">
