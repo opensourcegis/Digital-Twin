@@ -55,13 +55,13 @@ export function applyTimeOfDay(
   const scene = viewer.scene;
   scene.globe.enableLighting = true;
   scene.globe.dynamicAtmosphereLighting = true;
-  syncSolarClock(Cesium, viewer);
 
   const clouds = cloudFactor(weather);
   const wet = weatherWetness(weather);
   const wind = weatherWindFactor(weather);
 
   if (mode === "day") {
+    syncSolarClock(Cesium, viewer);
     const intensity = Math.max(0.35, 1 - clouds * 0.55 - wet * 0.2);
     scene.light = new Cesium.SunLight({
       color: Cesium.Color.fromCssColorString(
@@ -83,21 +83,30 @@ export function applyTimeOfDay(
       clouds > 0.6 ? "#6b7c8f" : "#87a0b8"
     );
   } else {
+    // Keep sun below the horizon so mesh IBL / shadows read as night
+    try {
+      const nightDate = new Date();
+      nightDate.setUTCHours(8, 0, 0, 0); // ~night for US west campus lon
+      viewer.clock.currentTime = Cesium.JulianDate.fromDate(nightDate);
+      viewer.clock.shouldAnimate = false;
+    } catch {
+      /* ignore */
+    }
     scene.light = new Cesium.DirectionalLight({
       direction: new Cesium.Cartesian3(0.15, 0.35, -0.9),
       color: Cesium.Color.fromCssColorString("#8aa4c4"),
-      intensity: 0.35 * (1 - clouds * 0.3),
+      intensity: 0.28 * (1 - clouds * 0.3),
     });
-    scene.globe.atmosphereLightIntensity = 2.5;
+    scene.globe.atmosphereLightIntensity = 1.2;
     scene.globe.baseColor = Cesium.Color.fromCssColorString("#0a1018");
     if (scene.skyAtmosphere) {
       scene.skyAtmosphere.hueShift = -0.18;
-      scene.skyAtmosphere.saturationShift = -0.25 - clouds * 0.1;
-      scene.skyAtmosphere.brightnessShift = -0.45 - clouds * 0.1;
+      scene.skyAtmosphere.saturationShift = -0.35 - clouds * 0.1;
+      scene.skyAtmosphere.brightnessShift = -0.55 - clouds * 0.1;
     }
     scene.fog.enabled = true;
-    scene.fog.density = 0.00045 + clouds * 0.0002 + wind * 0.00012;
-    scene.fog.minimumBrightness = 0.02;
+    scene.fog.density = 0.00055 + clouds * 0.00025 + wind * 0.00012;
+    scene.fog.minimumBrightness = 0.015;
     scene.backgroundColor = Cesium.Color.fromCssColorString("#05080e");
   }
 

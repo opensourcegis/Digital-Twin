@@ -30,9 +30,11 @@ import { pickSurfaceCartesian } from "@/lib/twin/pick-surface";
 import {
   applyCesium3DTileStyle,
   applyDrapeToEntities,
+  applyTilesetTimeOfDay,
   attachTilesetErrorHandlers,
   clearClippingPolygons,
   createIonSnapper,
+  resourceForTilesetUrl,
   loadVectorOrMeshTileset,
   setClippingPolygons,
   snapAgainstBim,
@@ -1357,13 +1359,25 @@ export function CesiumViewer({
     const viewer = viewerRef.current;
     if (!Cesium || !viewer) return;
     applyWeatherToScene(Cesium, viewer, weather ?? null, timeOfDay);
+    applyTilesetTimeOfDay(
+      Cesium,
+      tilesetRef.current,
+      timeOfDay,
+      tilesetStylePreset
+    );
+    applyTilesetTimeOfDay(
+      Cesium,
+      vectorTilesetRef.current,
+      timeOfDay,
+      tilesetStylePreset
+    );
     // Wind particles disabled — don't force continuous render for weather alone
     windActiveRef.current = false;
     if (robotPlayingRef.current) {
       viewer.scene.requestRenderMode = false;
     }
     rebuildPoles();
-  }, [timeOfDay, weather, rebuildPoles]);
+  }, [timeOfDay, weather, rebuildPoles, tilesetStylePreset]);
 
   useEffect(() => {
     rebuildPoles();
@@ -1602,9 +1616,36 @@ export function CesiumViewer({
           onStatusRef.current(
             isSample ? "Loading sample 3D Tiles (AGI HQ)…" : "Loading 3D Tiles…"
           );
-          const tileset = await Cesium.Cesium3DTileset.fromUrl(url);
+          let tileset: any;
+          try {
+            // External http(s) URLs go through /api/tiles-proxy (CORS-safe)
+            tileset = await Cesium.Cesium3DTileset.fromUrl(
+              resourceForTilesetUrl(Cesium, url),
+              {
+                maximumScreenSpaceError: 8,
+              }
+            );
+          } catch (loadErr) {
+            const msg =
+              loadErr instanceof Error ? loadErr.message : String(loadErr);
+            throw new Error(
+              `Failed to fetch tileset (${url}). Use a public https://…/tileset.json (proxy handles CORS). ${msg}`
+            );
+          }
+          if (cancelled) {
+            try {
+              tileset.destroy?.();
+            } catch {
+              /* ignore */
+            }
+            return;
+          }
+          try {
+            await tileset.readyPromise;
+          } catch {
+            /* some Cesium builds resolve fromUrl already ready */
+          }
           if (cancelled) return;
-          // Prefer finer LOD so external mesh is visible after zoom
           if ("maximumScreenSpaceError" in tileset) {
             tileset.maximumScreenSpaceError = 8;
           }
@@ -1614,6 +1655,12 @@ export function CesiumViewer({
             reportTwinError({ source: "3D Tiles", message, detail });
           });
           applyCesium3DTileStyle(Cesium, tileset, tilesetStylePreset);
+          applyTilesetTimeOfDay(
+            Cesium,
+            tileset,
+            timeOfDayRef.current,
+            tilesetStylePreset
+          );
           pauseWalkChase(20_000);
           markUserCameraControl(viewer);
 
@@ -1863,11 +1910,23 @@ export function CesiumViewer({
     try {
       if (tilesetRef.current) {
         applyCesium3DTileStyle(Cesium, tilesetRef.current, tilesetStylePreset);
+        applyTilesetTimeOfDay(
+          Cesium,
+          tilesetRef.current,
+          timeOfDayRef.current,
+          tilesetStylePreset
+        );
       }
       if (vectorTilesetRef.current) {
         applyCesium3DTileStyle(
           Cesium,
           vectorTilesetRef.current,
+          tilesetStylePreset
+        );
+        applyTilesetTimeOfDay(
+          Cesium,
+          vectorTilesetRef.current,
+          timeOfDayRef.current,
           tilesetStylePreset
         );
       }
