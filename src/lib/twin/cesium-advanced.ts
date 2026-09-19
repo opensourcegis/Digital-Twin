@@ -107,10 +107,11 @@ export function applyTilesetTimeOfDay(
   );
 
   // 1 = full daylight texture; lower = darker (night / overcast / rain)
+  // Keep night readable — brightness stage also dims the frame
   const dim =
     mode === "night"
-      ? 0.22 + clouds * 0.06
-      : Math.max(0.35, 1 - clouds * 0.5 - wet * 0.28);
+      ? 0.55 + clouds * 0.05
+      : Math.max(0.45, 1 - clouds * 0.45 - wet * 0.25);
 
   try {
     if (Cesium.CustomShader && Cesium.UniformType) {
@@ -185,7 +186,7 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
       if (mode === "night" || dim < 0.85) {
         tileset.colorBlendMode = Cesium.Cesium3DTileColorBlendMode.MIX;
         if ("colorBlendAmount" in tileset) {
-          tileset.colorBlendAmount = mode === "night" ? 0.78 : 0.35 + (1 - dim) * 0.4;
+          tileset.colorBlendAmount = mode === "night" ? 0.45 : 0.3 + (1 - dim) * 0.35;
         }
       } else {
         tileset.colorBlendMode = Cesium.Cesium3DTileColorBlendMode.HIGHLIGHT;
@@ -204,7 +205,7 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
   try {
     if (mode === "night") {
       tileset.style = new Cesium.Cesium3DTileStyle({
-        color: "color('#101828')",
+        color: "color('#1a2438')",
       });
     } else if (dim < 0.85) {
       // Overcast / rain tint without wiping textures

@@ -125,7 +125,7 @@ export function applyTimeOfDay(
       Cesium,
       viewer,
       true,
-      Math.max(0.22, 0.3 - clouds * 0.06 - wet * 0.04)
+      Math.max(0.4, 0.48 - clouds * 0.05 - wet * 0.03)
     );
   }
 
