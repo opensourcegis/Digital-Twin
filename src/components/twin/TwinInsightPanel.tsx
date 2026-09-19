@@ -64,10 +64,39 @@ function TreeNode({
 
 interface TwinInsightPanelProps {
   onSelectAsset: (guid: string) => void;
+  showBim?: boolean;
+  showScenario?: boolean;
+  showAnalytics?: boolean;
 }
 
-export function TwinInsightPanel({ onSelectAsset }: TwinInsightPanelProps) {
+export function TwinInsightPanel({
+  onSelectAsset,
+  showBim = true,
+  showScenario = true,
+  showAnalytics = true,
+}: TwinInsightPanelProps) {
+  const tabs = (
+    [
+      showBim ? ({ id: "bim" as const, label: "Assets", icon: Building2 }) : null,
+      showScenario
+        ? ({ id: "scenario" as const, label: "Scenario", icon: GitBranch })
+        : null,
+      showAnalytics
+        ? ({ id: "analytics" as const, label: "Analytics", icon: LineChart })
+        : null,
+    ] as const
+  ).filter(Boolean) as Array<{
+    id: Tab;
+    label: string;
+    icon: typeof Building2;
+  }>;
+
   const [tab, setTab] = useState<Tab>("bim");
+  useEffect(() => {
+    if (tabs.length && !tabs.some((t) => t.id === tab)) {
+      setTab(tabs[0]!.id);
+    }
+  }, [showBim, showScenario, showAnalytics, tab, tabs.length]);
   const [hierarchy, setHierarchy] = useState<HierarchyNode[]>([]);
   const [scenarios, setScenarios] = useState<
     Array<{ id: string; name: string; status: string }>
@@ -145,13 +174,7 @@ export function TwinInsightPanel({ onSelectAsset }: TwinInsightPanelProps) {
   return (
     <div className="space-y-3">
       <div className="flex gap-1">
-        {(
-          [
-            { id: "bim" as const, label: "Assets", icon: Building2 },
-            { id: "scenario" as const, label: "Scenario", icon: GitBranch },
-            { id: "analytics" as const, label: "Analytics", icon: LineChart },
-          ] as const
-        ).map(({ id, label, icon: Icon }) => (
+        {tabs.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             type="button"
@@ -167,6 +190,12 @@ export function TwinInsightPanel({ onSelectAsset }: TwinInsightPanelProps) {
           </button>
         ))}
       </div>
+
+      {tabs.length === 0 && (
+        <p className="text-xs text-slate-500">
+          All insight tabs disabled in Control Center.
+        </p>
+      )}
 
       {tab === "bim" && (
         <div className="rounded-lg border border-white/5 bg-white/[0.03] p-2">

@@ -361,6 +361,31 @@ export function PlatformDesignAdminPanel() {
                   step={0.0001}
                 />
               ))}
+              <p className="sm:col-span-2 text-[11px] font-medium uppercase tracking-wider text-slate-500">
+                Camera home
+              </p>
+              {(
+                [
+                  ["lon", "Longitude"],
+                  ["lat", "Latitude"],
+                  ["height", "Height (m)"],
+                  ["headingDeg", "Heading °"],
+                  ["pitchDeg", "Pitch °"],
+                ] as const
+              ).map(([key, label]) => (
+                <Num
+                  key={key}
+                  label={label}
+                  value={simulation.cameraHome[key]}
+                  onChange={(n) =>
+                    setSimulation((s) => ({
+                      ...s,
+                      cameraHome: { ...s.cameraHome, [key]: n },
+                    }))
+                  }
+                  step={key === "lon" || key === "lat" ? 0.0001 : 1}
+                />
+              ))}
             </div>
           )}
 
@@ -375,6 +400,74 @@ export function PlatformDesignAdminPanel() {
                     setInformatics((i) => ({ ...i, copTitle: e.target.value }))
                   }
                 />
+              </label>
+              <label className="block text-xs text-slate-400">
+                Weather section title
+                <input
+                  className={fieldClass}
+                  value={informatics.weatherSectionTitle}
+                  onChange={(e) =>
+                    setInformatics((i) => ({
+                      ...i,
+                      weatherSectionTitle: e.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="block text-xs text-slate-400">
+                BMS section title
+                <input
+                  className={fieldClass}
+                  value={informatics.bmsSectionTitle}
+                  onChange={(e) =>
+                    setInformatics((i) => ({
+                      ...i,
+                      bmsSectionTitle: e.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="block text-xs text-slate-400">
+                Robot battery label
+                <input
+                  className={fieldClass}
+                  value={informatics.robotBatteryLabel}
+                  onChange={(e) =>
+                    setInformatics((i) => ({
+                      ...i,
+                      robotBatteryLabel: e.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="block text-xs text-slate-400">
+                Critical alerts label
+                <input
+                  className={fieldClass}
+                  value={informatics.criticalAlertsLabel}
+                  onChange={(e) =>
+                    setInformatics((i) => ({
+                      ...i,
+                      criticalAlertsLabel: e.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="block text-xs text-slate-400">
+                Temperature unit
+                <select
+                  className={fieldClass}
+                  value={informatics.temperatureUnit}
+                  onChange={(e) =>
+                    setInformatics((i) => ({
+                      ...i,
+                      temperatureUnit: e.target.value as "C" | "F",
+                    }))
+                  }
+                >
+                  <option value="C">Celsius (°C)</option>
+                  <option value="F">Fahrenheit (°F)</option>
+                </select>
               </label>
               <Toggle
                 label="Show site weather"
@@ -448,11 +541,6 @@ export function PlatformDesignAdminPanel() {
                 min={1}
                 max={120}
               />
-              <p className="sm:col-span-2 text-[11px] leading-relaxed text-slate-500">
-                Live sensor gauge telemetry has been removed from the COP. Sensor
-                points remain as a spatial layer; alerts still use server-side
-                readings.
-              </p>
             </div>
           )}
 

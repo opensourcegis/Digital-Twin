@@ -5,8 +5,11 @@ import {
   updatePlatformSettings,
 } from "@/lib/platform/settings-store";
 import type {
+  BrandingSettings,
+  DockModuleConfig,
   GisAnalysisSettings,
   InformaticsSettings,
+  ShellSettings,
   SimulationSettings,
 } from "@/lib/platform/types";
 
@@ -21,6 +24,8 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
   if (!(await getAdminSession())) return unauthorized();
   let body: {
+    branding?: Partial<BrandingSettings>;
+    shell?: Partial<ShellSettings> & { modules?: DockModuleConfig[] };
     simulation?: Partial<SimulationSettings>;
     informatics?: Partial<InformaticsSettings>;
     gis?: Partial<GisAnalysisSettings>;

@@ -27,6 +27,15 @@ function fmt(n: number | null | undefined, digits = 0, suffix = "") {
   return `${n.toFixed(digits)}${suffix}`;
 }
 
+function formatTemp(
+  c: number | null | undefined,
+  unit: "C" | "F"
+): string {
+  if (c == null || !Number.isFinite(c)) return "—";
+  if (unit === "F") return `${((c * 9) / 5 + 32).toFixed(1)}°F`;
+  return `${c.toFixed(1)}°C`;
+}
+
 export function OperationsPanel({
   alerts,
   bms,
@@ -59,7 +68,7 @@ export function OperationsPanel({
         <div className="rounded-xl border border-sky-400/15 bg-sky-400/[0.05] p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="flex items-center gap-1 text-[10px] uppercase tracking-[0.14em] text-sky-300/80">
-              <CloudRain className="h-3 w-3" /> Site weather
+              <CloudRain className="h-3 w-3" /> {informatics.weatherSectionTitle}
             </p>
             <Link
               href="/admin"
@@ -75,7 +84,10 @@ export function OperationsPanel({
               <div>
                 <p className="text-slate-500">Temp</p>
                 <p className="font-display text-lg text-slate-100">
-                  {fmt(weather?.temperatureC, 1, "°C")}
+                  {formatTemp(
+                    weather?.temperatureC,
+                    informatics.temperatureUnit
+                  )}
                 </p>
               </div>
               <div>
@@ -109,13 +121,13 @@ export function OperationsPanel({
       {informatics.showRobotStatus && (
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div className="rounded-xl border border-white/5 bg-white/[0.03] p-2">
-            <p className="text-slate-500">Robot battery</p>
+            <p className="text-slate-500">{informatics.robotBatteryLabel}</p>
             <p className="font-display text-xl text-amber-200">
               {robotBattery?.toFixed(0) ?? "—"}%
             </p>
           </div>
           <div className="rounded-xl border border-white/5 bg-white/[0.03] p-2">
-            <p className="text-slate-500">Critical alerts</p>
+            <p className="text-slate-500">{informatics.criticalAlertsLabel}</p>
             <p className="font-display text-xl text-red-300">
               {robotAlerts ?? 0}
             </p>
@@ -126,7 +138,7 @@ export function OperationsPanel({
       {informatics.showBms && (
         <div>
           <p className="mb-2 flex items-center gap-1 text-[10px] uppercase tracking-[0.14em] text-slate-500">
-            <Building2 className="h-3 w-3" /> BMS / BAS
+            <Building2 className="h-3 w-3" /> {informatics.bmsSectionTitle}
           </p>
           <div className="space-y-1">
             {bms.slice(0, informatics.bmsLimit).map((p) => (
