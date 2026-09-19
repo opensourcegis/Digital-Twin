@@ -168,8 +168,10 @@ export function positionsFromRing(
 }
 
 /**
- * Build / replace a ClippingPolygonCollection (supports holes — Cesium 1.145).
- * Apply to tileset and optionally the globe.
+ * Build / replace ClippingPolygonCollection (supports holes — Cesium 1.145).
+ * IMPORTANT: each target needs its own collection — ClippingPolygonCollection
+ * is single-owner; sharing one between globe + tileset corrupts bounding volumes
+ * and crashes with `boundingVolume.distanceSquaredTo` undefined.
  */
 export function setClippingPolygons(
   Cesium: CesiumNS,
@@ -180,44 +182,101 @@ export function setClippingPolygons(
     enabled?: boolean;
     inverse?: boolean;
   }
-): any | null {
+): { tileset?: any; globe?: any } | null {
   if (!opts.outer || opts.outer.length < 3) return null;
   if (!Cesium.ClippingPolygon || !Cesium.ClippingPolygonCollection) {
     console.warn("ClippingPolygon APIs missing — need CesiumJS ≥ 1.145");
     return null;
   }
 
-  const polygon = new Cesium.ClippingPolygon({
-    positions: positionsFromRing(Cesium, opts.outer),
-    holes: (opts.holes ?? [])
-      .filter((h) => h.length >= 3)
-      .map((h) => positionsFromRing(Cesium, h)),
-    ellipsoid: Cesium.Ellipsoid.WGS84,
-  });
+  // Drop prior collections so owners release GPU/BV state cleanly
+  clearClippingPolygons(targets);
 
-  const collection = new Cesium.ClippingPolygonCollection({
-    polygons: [polygon],
-    enabled: opts.enabled !== false,
-    inverse: Boolean(opts.inverse),
-    ellipsoid: Cesium.Ellipsoid.WGS84,
-  });
+  const holes = (opts.holes ?? [])
+    .filter((h) => h.length >= 3)
+    .map((h) => positionsFromRing(Cesium, h));
+  const positions = positionsFromRing(Cesium, opts.outer);
 
-  if (targets.tileset) {
-    targets.tileset.clippingPolygons = collection;
+  // Degenerate / coincident verts can yield empty BVs — require a real area
+  try {
+    const bs = Cesium.BoundingSphere.fromPoints(positions);
+    if (!bs || !(bs.radius > 1)) {
+      console.warn("Clipping polygon too small / degenerate");
+      return null;
+    }
+  } catch {
+    return null;
   }
-  if (targets.globe && "clippingPolygons" in targets.globe) {
-    targets.globe.clippingPolygons = collection;
+
+  const makeCollection = () =>
+    new Cesium.ClippingPolygonCollection({
+      polygons: [
+        new Cesium.ClippingPolygon({
+          positions,
+          holes,
+          ellipsoid: Cesium.Ellipsoid.WGS84,
+        }),
+      ],
+      enabled: opts.enabled !== false,
+      inverse: Boolean(opts.inverse),
+      ellipsoid: Cesium.Ellipsoid.WGS84,
+    });
+
+  const out: { tileset?: any; globe?: any } = {};
+  try {
+    if (targets.tileset) {
+      out.tileset = makeCollection();
+      targets.tileset.clippingPolygons = out.tileset;
+    }
+    if (targets.globe && "clippingPolygons" in targets.globe) {
+      out.globe = makeCollection();
+      targets.globe.clippingPolygons = out.globe;
+    }
+  } catch (err) {
+    console.warn("setClippingPolygons failed", err);
+    clearClippingPolygons(targets);
+    return null;
   }
-  return collection;
+  return out;
 }
 
 export function clearClippingPolygons(targets: {
   tileset?: any | null;
   globe?: any | null;
 }) {
-  if (targets.tileset) targets.tileset.clippingPolygons = undefined;
-  if (targets.globe && "clippingPolygons" in targets.globe) {
-    targets.globe.clippingPolygons = undefined;
+  const destroy = (owner: any, key: string) => {
+    if (!owner) return;
+    try {
+      const col = owner[key];
+      owner[key] = undefined;
+      if (col && !col.isDestroyed?.() && typeof col.destroy === "function") {
+        col.destroy();
+      }
+    } catch {
+      try {
+        owner[key] = undefined;
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+  destroy(targets.tileset, "clippingPolygons");
+  destroy(targets.globe, "clippingPolygons");
+}
+
+/** Attach safe tileFailed / loadError handlers so one bad tile doesn't freeze the viewer. */
+export function attachTilesetErrorHandlers(
+  tileset: any,
+  onError: (message: string, detail?: string) => void
+) {
+  if (!tileset) return;
+  try {
+    tileset.tileFailed?.addEventListener?.((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err ?? "tile failed");
+      onError("3D Tiles tile failed to load", msg);
+    });
+  } catch {
+    /* ignore */
   }
 }
 
