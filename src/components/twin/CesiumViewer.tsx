@@ -121,6 +121,8 @@ interface ViewerProps {
   onStatus: (status: string) => void;
   onAssetSelect?: (guid: string | null) => void;
   onWalkActive?: () => void;
+  /** Called after click-to-move places the robot — parent should leave place mode */
+  onPlaceComplete?: () => void;
   /** Increment to force campus/tileset-aware spawn reset */
   robotResetToken?: number;
 }
@@ -193,6 +195,7 @@ export function CesiumViewer({
   onStatus,
   onAssetSelect,
   onWalkActive,
+  onPlaceComplete,
   robotResetToken = 0,
 }: ViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -208,6 +211,9 @@ export function CesiumViewer({
   const clipPreviewRef = useRef<any>(null);
   const clipInverseRef = useRef(clipInverse);
   const drapeModeRef = useRef(drapeMode);
+  /** True only while awaiting a click-to-move pick — freezes chase without blocking after place */
+  const placeHoldRef = useRef(false);
+  const onPlaceCompleteRef = useRef(onPlaceComplete);
   const measureEntities = useRef<any[]>([]);
   const measurePoints = useRef<any[]>([]);
   const drawLinePoints = useRef<any[]>([]);
@@ -269,6 +275,7 @@ export function CesiumViewer({
   onStatusRef.current = onStatus;
   onAssetSelectRef.current = onAssetSelect;
   onWalkActiveRef.current = onWalkActive;
+  onPlaceCompleteRef.current = onPlaceComplete;
   robotResetTokenRef.current = robotResetToken;
   onRobotProgressRef.current = onRobotProgress;
   walkthroughRef.current = walkthroughMode;
@@ -743,7 +750,8 @@ export function CesiumViewer({
           };
           robotPoseRef.current = next;
           robotHandle.current?.update(next);
-          // Only now follow the robot — after a successful place on this layer
+          // Place done — resume chase follow on this layer
+          placeHoldRef.current = false;
           viewer.camera.cancelFlight?.();
           pauseWalkChase(0);
           clearUserCameraControl();
@@ -765,14 +773,16 @@ export function CesiumViewer({
             });
           }
           onStatusRef.current(
-            `Robot placed on layer · ${hit.lat.toFixed(5)}, ${hit.lon.toFixed(5)} · ${hit.height.toFixed(1)} m`
+            `Robot placed · WASD to walk · ${hit.lat.toFixed(5)}, ${hit.lon.toFixed(5)} · ${hit.height.toFixed(1)} m`
           );
           onMeasureRef.current({
             kind: "identify",
             label: "Robot on surface",
             value: `${hit.lat.toFixed(5)}, ${hit.lon.toFixed(5)}`,
-            detail: `h ${hit.height.toFixed(1)} m — WASD to walk`,
+            detail: `h ${hit.height.toFixed(1)} m — camera follows WASD`,
           });
+          // Leave place mode so chase isn't held by the tool flag
+          onPlaceCompleteRef.current?.();
           viewer.scene.requestRender();
           return;
         }
@@ -1295,10 +1305,10 @@ export function CesiumViewer({
               tilesetRef.current ? "tileset" : "campus",
             getTileset: () => tilesetRef.current,
             getExcludeObjects: () => robotHandle.current?.entities ?? [],
-            // Keep left-click free for place; don't orbit-drag during place
-            getAllowOrbitDrag: () => toolRef.current !== "robot-waypoints",
-            // Never chase-snap to robot while placing — stay on the layer in view
-            getHoldCamera: () => toolRef.current === "robot-waypoints",
+            // Keep left-click free for place; don't orbit-drag while awaiting pick
+            getAllowOrbitDrag: () => !placeHoldRef.current,
+            // Freeze chase only while awaiting a place click — resume after place
+            getHoldCamera: () => placeHoldRef.current,
           }
         );
       } catch (err) {
@@ -2110,6 +2120,7 @@ export function CesiumViewer({
       if (placing) {
         // Hold the current view (new layer) so the user can click a point.
         // Do NOT move the robot or chase-cam — that leaves the tileset.
+        placeHoldRef.current = true;
         pauseWalkChase(120_000);
         markUserCameraControl(viewer);
         viewer.camera.cancelFlight?.();
@@ -2123,9 +2134,10 @@ export function CesiumViewer({
         return;
       }
 
-      // Quietly move robot onto tileset when starting normal Walk (not place)
+      // Leaving place / normal Walk — chase follows robot
+      placeHoldRef.current = false;
+      pauseWalkChase(0);
       ensureRobotOnActiveTileset({ snapCamera: false });
-
       clearUserCameraControl();
       viewer.camera.cancelFlight?.();
       enterWalkCamera(Cesium, viewer, robotPoseRef.current);
@@ -2169,6 +2181,7 @@ export function CesiumViewer({
 
     if (tool !== "robot-waypoints") {
       // Leaving place mode — resume chase if still walking
+      placeHoldRef.current = false;
       if (walkthroughRef.current === "walk") {
         pauseWalkChase(0);
         const Cesium = cesiumRef.current;
@@ -2180,6 +2193,7 @@ export function CesiumViewer({
     }
 
     // Stay on the layer in view — don't teleport robot onto a tileset yet
+    placeHoldRef.current = true;
     pauseWalkChase(120_000);
     markUserCameraControl(viewer);
     removeWeatherClouds(viewer);
