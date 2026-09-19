@@ -230,6 +230,7 @@ export function CesiumViewer({
     glows: new Map(),
     beams: new Map(),
     pools: new Map(),
+    rings: new Map(),
   });
   const robotHandle = useRef<AtlasRobotHandle | null>(null);
   const robotPoseRef = useRef<RobotPose>({ ...ROBOT_SPAWN });
@@ -1520,8 +1521,10 @@ export function CesiumViewer({
           if (glow) glow.show = show && poleOn;
           const beam = caches.beams.get(id);
           const pool = caches.pools.get(id);
+          const ring = caches.rings?.get(id);
           if (beam) beam.show = lit;
           if (pool) pool.show = lit;
+          if (ring) ring.show = lit;
         }
         needsRender = true;
       }
@@ -1674,7 +1677,10 @@ export function CesiumViewer({
           attachTilesetErrorHandlers(tileset, (message, detail) => {
             reportTwinError({ source: "3D Tiles", message, detail });
           });
-          applyCesium3DTileStyle(Cesium, tileset, tilesetStylePreset);
+          // Day default = no style (true textures); applyTilesetTimeOfDay owns look
+          if (tilesetStylePreset !== "default") {
+            applyCesium3DTileStyle(Cesium, tileset, tilesetStylePreset);
+          }
           applyTilesetTimeOfDay(
             Cesium,
             tileset,
