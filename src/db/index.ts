@@ -22,7 +22,7 @@ export function isDatabaseConfigured(): boolean {
 
 function createDb(url: string) {
   client = postgres(url, { max: 8, prepare: false });
-  return drizzle(client, { schema });
+  return drizzle({ client, schema });
 }
 
 /** Lazy singleton. Returns null when no DATABASE_URL (memory twin fallback). */

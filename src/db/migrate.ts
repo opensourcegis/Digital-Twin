@@ -82,8 +82,8 @@ async function seed(sql: postgres.Sql) {
         ${(a.lat as number) ?? null},
         ${(a.height as number) ?? null},
         ${(a.coordinateSystem as string) ?? "EPSG:4326"},
-        ${sql.json((a.dimensions as object) ?? null)},
-        ${sql.json((a.metadata as object) ?? {})}
+        ${sql.json(((a.dimensions as object) ?? null) as never)},
+        ${sql.json(((a.metadata as object) ?? {}) as never)}
       )
       ON CONFLICT (guid) DO UPDATE SET
         name = EXCLUDED.name,
@@ -119,7 +119,7 @@ async function seed(sql: postgres.Sql) {
         ${s.unit as string},
         ${s.protocol as string},
         ${(s.topic as string) ?? null},
-        ${sql.json(thr)},
+        ${sql.json(thr as never)},
         ${s.lon as number},
         ${s.lat as number},
         ${(s.height as number) ?? 0},

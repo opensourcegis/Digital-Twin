@@ -91,7 +91,7 @@ export async function cloneLiveToScenario(
       name,
       description: description ?? null,
       clonedAt,
-      variables,
+      variables: { ...variables } as Record<string, unknown>,
       status: "ready",
     });
     if (readings.length) {
