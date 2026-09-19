@@ -15,7 +15,7 @@ let chaseHoldUntil = 0;
 
 /** Pause chase-camera follow so zoom-to-layer / orbit flies can complete. */
 export function pauseWalkChase(ms = 10_000) {
-  chaseHoldUntil = performance.now() + ms;
+  chaseHoldUntil = ms <= 0 ? 0 : performance.now() + ms;
 }
 
 export function isWalkChasePaused() {
@@ -100,20 +100,25 @@ export function sampleSurfaceHeight(
     if (viewer.scene.sampleHeightSupported) {
       const h = viewer.scene.sampleHeight(carto, exclude);
       if (typeof h === "number" && Number.isFinite(h)) {
-        return Math.max(0.05, h);
+        // Ignore absurd jumps (sky / missed picks)
+        if (Math.abs(h - fallbackH) < 200 || fallbackH < 1) {
+          return h + 0.35;
+        }
       }
     }
-    const cartesian = Cesium.Cartesian3.fromDegrees(lon, lat, fallbackH + 40);
+    const cartesian = Cesium.Cartesian3.fromDegrees(lon, lat, fallbackH + 80);
     if (viewer.scene.clampToHeightSupported) {
       const clamped = viewer.scene.clampToHeight(cartesian, exclude);
       if (clamped) {
         const c = Cesium.Cartographic.fromCartesian(clamped);
-        if (c && Number.isFinite(c.height)) return Math.max(0.05, c.height);
+        if (c && Number.isFinite(c.height) && Math.abs(c.height - fallbackH) < 200) {
+          return c.height + 0.35;
+        }
       }
     }
     const globeH = viewer.scene.globe?.getHeight?.(carto);
     if (typeof globeH === "number" && Number.isFinite(globeH)) {
-      return Math.max(0.05, globeH);
+      return globeH + 0.35;
     }
   } catch {
     /* keep fallback */
