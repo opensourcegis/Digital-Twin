@@ -249,30 +249,37 @@ export function updateWalkthroughCamera(
   path: { lon: number; lat: number; height: number }[],
   progress: number
 ) {
-  if (mode === "off" || mode === "walk" || !robotPos) return;
+  if (mode === "off" || mode === "walk" || !robotPos || path.length < 2) return;
 
   const total = path.length - 1;
-  const x = progress * total;
+  const x = Math.min(Math.max(progress, 0), 0.9999) * total;
   const i = Math.min(total - 1, Math.floor(x));
   const a = path[i];
-  const b = path[i + 1] ?? path[0];
+  const b = path[i + 1] ?? path[i];
+  if (!a || !b) return;
+
   const heading = Math.atan2(b.lon - a.lon, b.lat - a.lat);
 
-  const carto = Cesium.Cartographic.fromCartesian(robotPos);
-  const lon = Cesium.Math.toDegrees(carto.longitude);
-  const lat = Cesium.Math.toDegrees(carto.latitude);
-  const h = carto.height;
-
-  const backDist = mode === "first" ? 0 : 0.00008;
-  const heightOff = mode === "first" ? 1.6 : 5;
-  const camLon = lon - Math.sin(heading) * backDist;
-  const camLat = lat - Math.cos(heading) * backDist;
+  // Offset in east-north-up meters from the robot (stable, no HPR-frame guesswork).
+  const backM = mode === "first" ? 0.45 : 16;
+  const upM = mode === "first" ? 1.55 : 8;
+  const enu = Cesium.Transforms.eastNorthUpToFixedFrame(robotPos);
+  const local = new Cesium.Cartesian3(
+    -Math.sin(heading) * backM,
+    -Math.cos(heading) * backM,
+    upM
+  );
+  const camPos = Cesium.Matrix4.multiplyByPoint(
+    enu,
+    local,
+    new Cesium.Cartesian3()
+  );
 
   viewer.camera.setView({
-    destination: Cesium.Cartesian3.fromDegrees(camLon, camLat, h + heightOff),
+    destination: camPos,
     orientation: {
       heading,
-      pitch: Cesium.Math.toRadians(mode === "first" ? -8 : -22),
+      pitch: Cesium.Math.toRadians(mode === "first" ? -8 : -32),
       roll: 0,
     },
   });

@@ -31,13 +31,13 @@ export function OperationsPanel({
 }: OperationsPanelProps) {
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between rounded-xl border border-teal-400/20 bg-teal-400/5 px-3 py-2">
+      <div className="flex items-center justify-between rounded-lg border border-teal-400/20 bg-teal-400/[0.06] px-3 py-2">
         <div className="flex items-center gap-2">
           <Activity className="h-4 w-4 text-teal-300" />
-          <span className="text-sm font-medium text-teal-100">Operations COP</span>
+          <span className="text-sm font-medium text-teal-50">Common operating picture</span>
         </div>
         <span
-          className={`text-[10px] ${connected ? "text-teal-300" : "text-red-400"}`}
+          className={`text-[10px] uppercase tracking-wide ${connected ? "text-teal-300" : "text-red-400"}`}
         >
           {connected ? "SSE live" : "Reconnecting…"}
         </span>

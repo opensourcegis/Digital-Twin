@@ -14,7 +14,12 @@ export function markUserCameraControl(viewer?: any) {
   viewer?.scene?.requestRender?.();
 }
 
-export function attachCameraControls(viewer: any, Cesium: CesiumNS) {
+/** Clear manual override so walkthrough / patrol camera can take over again. */
+export function clearUserCameraControl() {
+  userOverrideUntil = 0;
+}
+
+export function attachCameraControls(viewer: any, _Cesium: CesiumNS) {
   const scene = viewer.scene;
   const ctrl = scene.screenSpaceCameraController;
   ctrl.enableZoom = true;
@@ -29,12 +34,20 @@ export function attachCameraControls(viewer: any, Cesium: CesiumNS) {
   const requestRender = () => scene.requestRender();
   const markUser = () => markUserCameraControl(viewer);
 
-  viewer.camera.changed.addEventListener(requestRender);
-  ctrl.moveStart.addEventListener(markUser);
-  ctrl.moveEnd.addEventListener(requestRender);
+  // Cesium Camera has no `.changed` event — use ScreenSpaceCameraController events.
+  const onCtrlChanged = ctrl.changed?.addEventListener
+    ? () => ctrl.changed.addEventListener(requestRender)
+    : null;
+  onCtrlChanged?.();
+  ctrl.moveStart?.addEventListener?.(markUser);
+  ctrl.moveEnd?.addEventListener?.(requestRender);
 
+  const canvas = viewer.canvas ?? scene.canvas;
   const onWheel = () => markUser();
-  viewer.canvas.addEventListener("wheel", onWheel, { passive: true });
+  canvas?.addEventListener?.("wheel", onWheel, { passive: true });
+
+  const onPointerDown = () => markUser();
+  canvas?.addEventListener?.("pointerdown", onPointerDown, { passive: true });
 
   const onZoom = (e: Event) => {
     const detail = (e as CustomEvent<{ direction: "in" | "out" }>).detail;
@@ -46,10 +59,11 @@ export function attachCameraControls(viewer: any, Cesium: CesiumNS) {
   window.addEventListener("twin-camera-zoom", onZoom);
 
   return () => {
-    viewer.camera.changed.removeEventListener(requestRender);
-    ctrl.moveStart.removeEventListener(markUser);
-    ctrl.moveEnd.removeEventListener(requestRender);
-    viewer.canvas.removeEventListener("wheel", onWheel);
+    ctrl.changed?.removeEventListener?.(requestRender);
+    ctrl.moveStart?.removeEventListener?.(markUser);
+    ctrl.moveEnd?.removeEventListener?.(requestRender);
+    canvas?.removeEventListener?.("wheel", onWheel);
+    canvas?.removeEventListener?.("pointerdown", onPointerDown);
     window.removeEventListener("twin-camera-zoom", onZoom);
   };
 }

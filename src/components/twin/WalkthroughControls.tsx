@@ -11,43 +11,86 @@ interface WalkthroughControlsProps {
   robotPlaying: boolean;
 }
 
+const MODES = [
+  {
+    id: "off" as const,
+    label: "Orbit",
+    hint: "Free camera",
+    Icon: VideoOff,
+  },
+  {
+    id: "walk" as const,
+    label: "Walk",
+    hint: "WASD on site",
+    Icon: Footprints,
+  },
+  {
+    id: "third" as const,
+    label: "Chase",
+    hint: "3rd person",
+    Icon: Video,
+  },
+  {
+    id: "first" as const,
+    label: "Cab",
+    hint: "1st person",
+    Icon: Eye,
+  },
+];
+
 export function WalkthroughControls({
   mode,
   onChange,
   robotPlaying,
 }: WalkthroughControlsProps) {
+  const active = MODES.find((m) => m.id === mode) ?? MODES[0];
+
   return (
-    <div className="rounded-xl border border-violet-400/20 bg-violet-400/5 p-3">
-      <div className="flex items-center gap-2">
-        <Eye className="h-4 w-4 text-violet-300" />
-        <p className="text-sm font-medium text-violet-100">3D walkthrough</p>
+    <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+            Camera / Walkthrough
+          </p>
+          <p className="mt-0.5 text-sm font-medium text-slate-100">
+            {active.label}
+          </p>
+        </div>
+        {(mode === "first" || mode === "third") && (
+          <span
+            className={cn(
+              "rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+              robotPlaying
+                ? "bg-emerald-500/15 text-emerald-300"
+                : "bg-amber-500/15 text-amber-200"
+            )}
+          >
+            {robotPlaying ? "Tracking" : "Armed"}
+          </span>
+        )}
       </div>
-      <p className="mt-1 text-xs text-slate-400">
+      <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
         {mode === "walk"
-          ? "Walk the campus with WASD or arrow keys. Mouse drag to look around."
-          : "Follow ATLAS-01 on patrol — camera tracks live telemetry zones."}
-        {mode !== "walk" &&
-          mode !== "off" &&
-          !robotPlaying &&
-          " Start patrol to move."}
+          ? "Walk the campus with WASD or arrow keys. Drag to look."
+          : mode === "off"
+            ? "Orbit freely, or arm Chase/Cab then start ATLAS-01 patrol."
+            : robotPlaying
+              ? "Camera locked to ATLAS-01 on the live patrol route."
+              : "Press Play on patrol to begin camera follow."}
       </p>
-      <div className="mt-2 grid grid-cols-2 gap-1">
-        {(
-          [
-            ["off", "Free", VideoOff],
-            ["walk", "Walk", Footprints],
-            ["third", "3rd person", Video],
-            ["first", "1st person", Eye],
-          ] as const
-        ).map(([id, label, Icon]) => (
+      <div className="mt-3 grid grid-cols-4 gap-1">
+        {MODES.map(({ id, label, Icon }) => (
           <Button
             key={id}
             size="sm"
             variant={mode === id ? "default" : "secondary"}
-            className={cn("text-[10px]", mode === id && "ring-1 ring-violet-400/50")}
+            className={cn(
+              "h-auto flex-col gap-1 px-1 py-2 text-[10px]",
+              mode === id && "ring-1 ring-teal-400/40"
+            )}
             onClick={() => onChange(id)}
           >
-            <Icon className="h-3 w-3" />
+            <Icon className="h-3.5 w-3.5" />
             {label}
           </Button>
         ))}
