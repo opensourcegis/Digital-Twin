@@ -61,6 +61,40 @@ body {
   }
 }
 
+/* Wind streaks — angle/speed driven by live Open-Meteo wind */
+.twin-wind {
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.9s ease;
+  background-image: repeating-linear-gradient(
+    var(--wind-angle, 90deg),
+    transparent 0,
+    transparent 14px,
+    rgba(210, 228, 255, 0.045) 14px,
+    rgba(210, 228, 255, 0.045) 15px,
+    transparent 16px,
+    transparent 28px,
+    rgba(210, 228, 255, 0.08) 28px,
+    rgba(210, 228, 255, 0.08) 30px
+  );
+  background-size: 120px 120px;
+  animation: wind-streak var(--wind-duration, 1.4s) linear infinite;
+  mix-blend-mode: screen;
+}
+
+.twin-wind--active {
+  opacity: var(--wind-opacity, 0.35);
+}
+
+@keyframes wind-streak {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: var(--wind-drift-x, 120px) var(--wind-drift-y, 0px);
+  }
+}
+
 .glass-panel {
   border: 1px solid var(--panel-border);
   background: var(--panel);

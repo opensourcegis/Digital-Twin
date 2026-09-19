@@ -5,6 +5,7 @@ import type { TimeOfDay } from "@/lib/types";
 type CesiumNS = any;
 
 const CLOUD_TAG = "__twinWeatherClouds";
+const WIND_TAG = "__twinWeatherWind";
 
 /** Wetness 0–1 derived from rain + precip probability. */
 export function weatherWetness(weather: SceneWeather | null): number {
@@ -12,6 +13,19 @@ export function weatherWetness(weather: SceneWeather | null): number {
   const rainMm = Math.max(0, weather.rainMm ?? 0);
   const precipPct = Math.max(0, weather.precipProbabilityPct ?? 0);
   return Math.min(1, rainMm / 2.5 + precipPct / 140);
+}
+
+/** Wind strength 0–1 from m/s (calm → gale). */
+export function weatherWindFactor(weather: SceneWeather | null): number {
+  if (!weather) return 0;
+  return Math.min(1, Math.max(0, (weather.windSpeedMps ?? 0) / 18));
+}
+
+/** Meteorological wind direction (from) → screen CSS degrees for streak motion. */
+export function weatherWindCssAngle(weather: SceneWeather | null): number {
+  const from = weather?.windDirectionDeg ?? 270;
+  // Blow toward = from + 180; CSS gradient angle uses that
+  return (from + 180) % 360;
 }
 
 function cloudFactor(weather: SceneWeather | null): number {
@@ -45,6 +59,7 @@ export function applyTimeOfDay(
 
   const clouds = cloudFactor(weather);
   const wet = weatherWetness(weather);
+  const wind = weatherWindFactor(weather);
 
   if (mode === "day") {
     const intensity = Math.max(0.35, 1 - clouds * 0.55 - wet * 0.2);
@@ -62,7 +77,7 @@ export function applyTimeOfDay(
       scene.skyAtmosphere.brightnessShift = 0.04 - clouds * 0.35 - wet * 0.2;
     }
     scene.fog.enabled = true;
-    scene.fog.density = 0.00016 + clouds * 0.00035;
+    scene.fog.density = 0.00016 + clouds * 0.00035 + wind * 0.00015;
     scene.fog.minimumBrightness = 0.08;
     scene.backgroundColor = Cesium.Color.fromCssColorString(
       clouds > 0.6 ? "#6b7c8f" : "#87a0b8"
@@ -81,7 +96,7 @@ export function applyTimeOfDay(
       scene.skyAtmosphere.brightnessShift = -0.45 - clouds * 0.1;
     }
     scene.fog.enabled = true;
-    scene.fog.density = 0.00045 + clouds * 0.0002;
+    scene.fog.density = 0.00045 + clouds * 0.0002 + wind * 0.00012;
     scene.fog.minimumBrightness = 0.02;
     scene.backgroundColor = Cesium.Color.fromCssColorString("#05080e");
   }
@@ -89,20 +104,17 @@ export function applyTimeOfDay(
   scene.requestRender();
 }
 
+function findTaggedPrimitive(scene: any, tag: string) {
+  for (let i = 0; i < scene.primitives.length; i++) {
+    const p = scene.primitives.get(i);
+    if (p && p[tag]) return p;
+  }
+  return null;
+}
+
 function ensureCloudCollection(Cesium: CesiumNS, viewer: any) {
   const scene = viewer.scene;
-  let clouds = scene.primitives._primitives?.find?.(
-    (p: any) => p && p[CLOUD_TAG]
-  );
-  if (!clouds) {
-    for (let i = 0; i < scene.primitives.length; i++) {
-      const p = scene.primitives.get(i);
-      if (p && p[CLOUD_TAG]) {
-        clouds = p;
-        break;
-      }
-    }
-  }
+  let clouds = findTaggedPrimitive(scene, CLOUD_TAG);
   if (!clouds && Cesium.CloudCollection) {
     clouds = new Cesium.CloudCollection();
     clouds[CLOUD_TAG] = true;
@@ -131,12 +143,17 @@ function syncWeatherClouds(
   const lat = weather.latitude ?? 37.42205;
   const count = Math.min(18, Math.max(3, Math.round(cover / 8)));
   const brightness = Math.max(0.45, 1 - cover / 180);
+  const windPush = weatherWindFactor(weather) * 0.002;
+  const from = ((weather.windDirectionDeg ?? 270) * Math.PI) / 180;
+  // Displace cloud field downwind
+  const dLon = Math.sin(from + Math.PI) * windPush;
+  const dLat = Math.cos(from + Math.PI) * windPush;
 
   for (let i = 0; i < count; i++) {
     const ang = (i / count) * Math.PI * 2 + cover * 0.01;
     const radius = 0.004 + (i % 5) * 0.0015;
-    const clat = lat + Math.cos(ang) * radius;
-    const clon = lon + Math.sin(ang) * radius * 1.2;
+    const clat = lat + Math.cos(ang) * radius + dLat;
+    const clon = lon + Math.sin(ang) * radius * 1.2 + dLon;
     const height = 900 + (i % 4) * 280 + cover * 4;
     try {
       collection.add({
@@ -151,12 +168,123 @@ function syncWeatherClouds(
         brightness,
       });
     } catch {
-      /* CloudCollection unsupported in this Cesium build */
+      /* CloudCollection unsupported */
     }
   }
 }
 
-/** Map Open-Meteo fields onto Cesium fog, sky, sun intensity, and clouds. */
+function makeWindParticleCanvas(): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = 16;
+  c.height = 4;
+  const ctx = c.getContext("2d")!;
+  const g = ctx.createLinearGradient(0, 0, 16, 0);
+  g.addColorStop(0, "rgba(220,235,255,0)");
+  g.addColorStop(0.4, "rgba(220,235,255,0.85)");
+  g.addColorStop(1, "rgba(220,235,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 16, 4);
+  return c;
+}
+
+/**
+ * Cesium particle wind streaks over campus — emission scales with wind m/s.
+ */
+function syncWindParticles(
+  Cesium: CesiumNS,
+  viewer: any,
+  weather: SceneWeather | null
+) {
+  const scene = viewer.scene;
+  let system = findTaggedPrimitive(scene, WIND_TAG);
+
+  const wind = weatherWindFactor(weather);
+  if (!weather || wind < 0.08 || !Cesium.ParticleSystem) {
+    if (system) {
+      scene.primitives.remove(system);
+    }
+    return;
+  }
+
+  const lon = weather.longitude ?? -122.1339;
+  const lat = weather.latitude ?? 37.42205;
+  const fromDeg = weather.windDirectionDeg ?? 270;
+  const towardRad = ((fromDeg + 180) * Math.PI) / 180;
+  const speed = Math.max(0, weather.windSpeedMps ?? 0);
+
+  // Unit vector in ENU roughly for particle velocity
+  const east = Math.sin(towardRad);
+  const north = Math.cos(towardRad);
+  const mPerDegLat = 110540;
+  const mPerDegLon = 111320 * Math.cos((lat * Math.PI) / 180);
+
+  if (system) {
+    // Update in place when wind changes — avoid thrashing ParticleSystem
+    try {
+      system.emissionRate = 8 + speed * 6;
+      system.minimumSpeed = 4 + speed * 0.8;
+      system.maximumSpeed = 10 + speed * 1.6;
+      system.startScale = 1.2 + wind * 2;
+      system.endScale = 4 + wind * 6;
+      system.startColor = Cesium.Color.WHITE.withAlpha(0.55 * wind);
+      system.modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(
+        Cesium.Cartesian3.fromDegrees(lon, lat, 18)
+      );
+      system.__twinWindEast = east;
+      system.__twinWindNorth = north;
+      system.__twinWindSpeed = speed;
+      return;
+    } catch {
+      scene.primitives.remove(system);
+      system = null;
+    }
+  }
+
+  try {
+    const origin = Cesium.Cartesian3.fromDegrees(lon, lat, 18);
+    const modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(origin);
+    system = new Cesium.ParticleSystem({
+      image: makeWindParticleCanvas(),
+      startColor: Cesium.Color.WHITE.withAlpha(0.55 * wind),
+      endColor: Cesium.Color.WHITE.withAlpha(0),
+      startScale: 1.2 + wind * 2,
+      endScale: 4 + wind * 6,
+      minimumParticleLife: 1.2,
+      maximumParticleLife: 2.8,
+      minimumSpeed: 4 + speed * 0.8,
+      maximumSpeed: 10 + speed * 1.6,
+      emissionRate: 8 + speed * 6,
+      emitter: new Cesium.BoxEmitter(new Cesium.Cartesian3(120, 120, 40)),
+      modelMatrix,
+      emitterModelMatrix: Cesium.Matrix4.IDENTITY,
+      updateCallback: (p: any, dt: number) => {
+        const e = system.__twinWindEast ?? east;
+        const n = system.__twinWindNorth ?? north;
+        const s = system.__twinWindSpeed ?? speed;
+        const enu = new Cesium.Cartesian3(e * s * dt * 2.5, n * s * dt * 2.5, 0);
+        const world = Cesium.Matrix4.multiplyByPointAsVector(
+          system.modelMatrix,
+          enu,
+          new Cesium.Cartesian3()
+        );
+        Cesium.Cartesian3.add(p.position, world, p.position);
+      },
+      lifetime: Number.MAX_VALUE,
+      sizeInMeters: true,
+    });
+    system[WIND_TAG] = true;
+    system.__twinWindEast = east;
+    system.__twinWindNorth = north;
+    system.__twinWindSpeed = speed;
+    void mPerDegLat;
+    void mPerDegLon;
+    scene.primitives.add(system);
+  } catch (err) {
+    console.warn("Wind particles unavailable", err);
+  }
+}
+
+/** Map Open-Meteo fields onto Cesium fog, sky, sun, clouds, and wind. */
 export function applyWeatherToScene(
   Cesium: CesiumNS,
   viewer: any,
@@ -164,11 +292,11 @@ export function applyWeatherToScene(
   timeOfDay: TimeOfDay
 ) {
   const scene = viewer.scene;
-  // Re-apply base lighting with weather modulation first
   applyTimeOfDay(Cesium, viewer, timeOfDay, weather);
 
   if (!weather) {
     syncWeatherClouds(Cesium, viewer, null, timeOfDay);
+    syncWindParticles(Cesium, viewer, null);
     scene.requestRender();
     return;
   }
@@ -179,6 +307,7 @@ export function applyWeatherToScene(
   const wind = Math.max(0, weather.windSpeedMps ?? 0);
   const clouds = cloudFactor(weather);
   const wet = weatherWetness(weather);
+  const windF = weatherWindFactor(weather);
 
   let fogDensity = timeOfDay === "day" ? 0.00016 : 0.0004;
   fogDensity += clouds * 0.0005;
@@ -187,7 +316,7 @@ export function applyWeatherToScene(
     fogDensity = Math.max(fogDensity, 0.00012 + t * 0.0022);
   }
   fogDensity += Math.min(0.0015, rainMm * 0.00035 + precipPct * 0.000008);
-  fogDensity += Math.min(0.0006, wind * 0.00002);
+  fogDensity += Math.min(0.0012, wind * 0.00004);
 
   scene.fog.enabled = true;
   scene.fog.density = fogDensity;
@@ -199,7 +328,6 @@ export function applyWeatherToScene(
       base * (1 - wet * 0.3) * (1 - clouds * 0.4);
   }
 
-  // Soften sunlight under overcast
   if (timeOfDay === "day" && scene.light && "intensity" in scene.light) {
     try {
       scene.light.intensity = Math.max(0.3, 1 - clouds * 0.55 - wet * 0.15);
@@ -209,5 +337,12 @@ export function applyWeatherToScene(
   }
 
   syncWeatherClouds(Cesium, viewer, weather, timeOfDay);
+  syncWindParticles(Cesium, viewer, weather);
+
+  // Keep particles animating under wind
+  if (windF > 0.08) {
+    scene.requestRenderMode = false;
+  }
+
   scene.requestRender();
 }
