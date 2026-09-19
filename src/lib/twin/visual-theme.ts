@@ -2,13 +2,13 @@
 
 export const TWIN_LOOK = {
   buildings: {
-    office: "#a8b4c0",
-    lab: "#9eb0bc",
-    warehouse: "#8e96a3",
-    utility: "#9a9084",
-    alpha: 0.82,
-    outline: "#eef2f6",
-    outlineAlpha: 0.55,
+    office: "#c5d0dc",
+    lab: "#b8c8d4",
+    warehouse: "#aeb6c2",
+    utility: "#b8aea0",
+    alpha: 0.92,
+    outline: "#f4f7fb",
+    outlineAlpha: 0.7,
     alertOutline: "#ef4444",
   },
   roads: {
