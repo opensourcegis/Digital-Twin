@@ -309,11 +309,17 @@ export function CesiumViewer({
     }
 
     function pickGround(Cesium: CesiumNS, viewer: any, windowPosition: any) {
+      // Prefer scene.pickPosition so clicks land on 3D Tiles / buildings
+      const picked = viewer.scene.pickPosition(windowPosition);
+      if (picked && Cesium.defined(picked)) {
+        const carto = Cesium.Cartographic.fromCartesian(picked);
+        if (carto && Number.isFinite(carto.height)) return picked;
+      }
       const ray = viewer.camera.getPickRay(windowPosition);
       if (!ray) return undefined;
       const globeHit = viewer.scene.globe.pick(ray, viewer.scene);
       if (globeHit) return globeHit;
-      return viewer.scene.pickPosition(windowPosition);
+      return undefined;
     }
 
     function pathLength(points: any[]) {
@@ -590,6 +596,51 @@ export function CesiumViewer({
             value: `${polesRef.current.length + 1} poles`,
             detail: `${pole.lat.toFixed(5)}, ${pole.lon.toFixed(5)}`,
           });
+          return;
+        }
+
+        if (t === "robot-waypoints") {
+          const carto = Cesium.Cartographic.fromCartesian(cartesian);
+          const lon = Cesium.Math.toDegrees(carto.longitude);
+          const lat = Cesium.Math.toDegrees(carto.latitude);
+          let height =
+            typeof carto.height === "number" && Number.isFinite(carto.height)
+              ? carto.height
+              : robotPoseRef.current.height;
+          // Prefer clamp onto tileset/globe surface
+          try {
+            if (viewer.scene.clampToHeightSupported) {
+              const clamped = viewer.scene.clampToHeight(cartesian, [
+                robotHandle.current?.root,
+              ]);
+              if (clamped) {
+                const c = Cesium.Cartographic.fromCartesian(clamped);
+                if (c && Number.isFinite(c.height)) height = c.height;
+              }
+            }
+          } catch {
+            /* keep picked height */
+          }
+          const next = {
+            ...robotPoseRef.current,
+            lon,
+            lat,
+            height: Math.max(0.05, height),
+          };
+          robotPoseRef.current = next;
+          robotHandle.current?.update(next);
+          pauseWalkChase(400);
+          clearUserCameraControl();
+          onStatusRef.current(
+            `Robot moved · ${lat.toFixed(5)}, ${lon.toFixed(5)} · h ${height.toFixed(1)} m`
+          );
+          onMeasureRef.current({
+            kind: "identify",
+            label: "Robot relocated",
+            value: `${lat.toFixed(5)}, ${lon.toFixed(5)}`,
+            detail: `Height ${height.toFixed(1)} m — WASD to walk`,
+          });
+          viewer.scene.requestRender();
           return;
         }
 
@@ -898,7 +949,14 @@ export function CesiumViewer({
               viewer.scene.requestRender();
             },
           },
-          () => onWalkActiveRef.current?.()
+          () => onWalkActiveRef.current?.(),
+          {
+            getSurfaceMode: () =>
+              tilesetRef.current ? "tileset" : "campus",
+            getExcludeObjects: () =>
+              robotHandle.current?.root ? [robotHandle.current.root] : [],
+            getAllowOrbitDrag: () => toolRef.current !== "robot-waypoints",
+          }
         );
       } catch (err) {
         console.warn("Keyboard walk attach failed", err);
