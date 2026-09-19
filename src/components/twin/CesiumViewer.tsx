@@ -30,9 +30,12 @@ import { pickSurfaceCartesian } from "@/lib/twin/pick-surface";
 import {
   applyCesium3DTileStyle,
   applyDrapeToEntities,
+  applyTilesetTimeOfDay,
   attachTilesetErrorHandlers,
   clearClippingPolygons,
   createIonSnapper,
+  loadTilesetFromUrl,
+  TILESET_LOAD_OPTIONS,
   loadVectorOrMeshTileset,
   setClippingPolygons,
   snapAgainstBim,
@@ -236,6 +239,7 @@ export function CesiumViewer({
   const toolRef = useRef(tool);
   const poleLightsRef = useRef(poleLightsOn);
   const timeOfDayRef = useRef(timeOfDay);
+  const weatherRef = useRef(weather);
   const platformSettingsRef = useRef(platformSettings);
   const onPolesChangeRef = useRef(onPolesChange);
   const onMeasureRef = useRef(onMeasure);
@@ -269,6 +273,7 @@ export function CesiumViewer({
   clipInverseRef.current = clipInverse;
   drapeModeRef.current = drapeMode;
   timeOfDayRef.current = timeOfDay;
+  weatherRef.current = weather;
   platformSettingsRef.current = platformSettings;
   onPolesChangeRef.current = onPolesChange;
   onMeasureRef.current = onMeasure;
@@ -1357,13 +1362,28 @@ export function CesiumViewer({
     const viewer = viewerRef.current;
     if (!Cesium || !viewer) return;
     applyWeatherToScene(Cesium, viewer, weather ?? null, timeOfDay);
+    applyTilesetTimeOfDay(
+      Cesium,
+      tilesetRef.current,
+      timeOfDay,
+      tilesetStylePreset,
+      weather
+    );
+    applyTilesetTimeOfDay(
+      Cesium,
+      vectorTilesetRef.current,
+      timeOfDay,
+      tilesetStylePreset,
+      weather
+    );
+    viewer.scene.requestRender();
     // Wind particles disabled — don't force continuous render for weather alone
     windActiveRef.current = false;
     if (robotPlayingRef.current) {
       viewer.scene.requestRenderMode = false;
     }
     rebuildPoles();
-  }, [timeOfDay, weather, rebuildPoles]);
+  }, [timeOfDay, weather, rebuildPoles, tilesetStylePreset]);
 
   useEffect(() => {
     rebuildPoles();
@@ -1387,13 +1407,18 @@ export function CesiumViewer({
       markUserCameraControl(viewer);
 
       const runZoom = async (attempt: number): Promise<void> => {
-        // External tileset may still be loading after Focus kicked off a Sample URL
+        // Wait up to ~30s for external tileset after Focus / Sample
         if (
           detail.builtInKey === "tileset" &&
           !tilesetRef.current &&
-          attempt < 25
+          attempt < 100
         ) {
-          await new Promise((r) => setTimeout(r, 200));
+          if (attempt === 0 || attempt % 10 === 0) {
+            onStatusRef.current(
+              `Waiting for external tileset… (${Math.round((attempt * 0.3))}s)`
+            );
+          }
+          await new Promise((r) => setTimeout(r, 300));
           return runZoom(attempt + 1);
         }
 
@@ -1602,20 +1627,58 @@ export function CesiumViewer({
           onStatusRef.current(
             isSample ? "Loading sample 3D Tiles (AGI HQ)…" : "Loading 3D Tiles…"
           );
-          const tileset = await Cesium.Cesium3DTileset.fromUrl(url);
+          let tileset: any;
+          try {
+            // Direct fetch first (fast); proxy only if CORS blocks
+            tileset = await loadTilesetFromUrl(Cesium, url, {
+              ...TILESET_LOAD_OPTIONS,
+            });
+          } catch (loadErr) {
+            const msg =
+              loadErr instanceof Error ? loadErr.message : String(loadErr);
+            throw new Error(
+              `Failed to fetch tileset (${url}). Use a public https://…/tileset.json. ${msg}`
+            );
+          }
+          if (cancelled) {
+            try {
+              tileset.destroy?.();
+            } catch {
+              /* ignore */
+            }
+            return;
+          }
+          try {
+            await tileset.readyPromise;
+          } catch {
+            /* some Cesium builds resolve fromUrl already ready */
+          }
           if (cancelled) return;
-          // Prefer finer LOD so external mesh is visible after zoom
           if ("maximumScreenSpaceError" in tileset) {
-            tileset.maximumScreenSpaceError = 8;
+            tileset.maximumScreenSpaceError = 16;
           }
           viewer.scene.primitives.add(tileset);
           tilesetRef.current = tileset;
+          // Signal Focus waiters ASAP — don't wait for zoom
+          notifyTilesetReady(url);
           attachTilesetErrorHandlers(tileset, (message, detail) => {
             reportTwinError({ source: "3D Tiles", message, detail });
           });
           applyCesium3DTileStyle(Cesium, tileset, tilesetStylePreset);
+          applyTilesetTimeOfDay(
+            Cesium,
+            tileset,
+            timeOfDayRef.current,
+            tilesetStylePreset,
+            weatherRef.current
+          );
           pauseWalkChase(20_000);
           markUserCameraControl(viewer);
+          onStatusRef.current(
+            isSample
+              ? "Sample tileset ready — zooming…"
+              : "3D Tiles ready — zooming…"
+          );
 
           const zoomResult = await zoomCameraToLayer(
             Cesium,
@@ -1635,6 +1698,11 @@ export function CesiumViewer({
           );
 
           if (cancelled) return;
+
+          // Refine LOD after first camera settle
+          if ("maximumScreenSpaceError" in tileset) {
+            tileset.maximumScreenSpaceError = 8;
+          }
 
           // Place robot on tileset center (WGS84 ellipsoidal height)
           try {
@@ -1696,7 +1764,6 @@ export function CesiumViewer({
               detail: url,
             });
           }
-          notifyTilesetReady(url);
         } else if (config.cesiumIonAssetId && config.cesiumIonToken) {
           onStatusRef.current("Loading ion asset…");
           const tileset = await Cesium.Cesium3DTileset.fromIonAssetId(
@@ -1863,12 +1930,26 @@ export function CesiumViewer({
     try {
       if (tilesetRef.current) {
         applyCesium3DTileStyle(Cesium, tilesetRef.current, tilesetStylePreset);
+        applyTilesetTimeOfDay(
+          Cesium,
+          tilesetRef.current,
+          timeOfDayRef.current,
+          tilesetStylePreset,
+          weatherRef.current
+        );
       }
       if (vectorTilesetRef.current) {
         applyCesium3DTileStyle(
           Cesium,
           vectorTilesetRef.current,
           tilesetStylePreset
+        );
+        applyTilesetTimeOfDay(
+          Cesium,
+          vectorTilesetRef.current,
+          timeOfDayRef.current,
+          tilesetStylePreset,
+          weatherRef.current
         );
       }
     } catch (err) {
