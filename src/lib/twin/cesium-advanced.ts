@@ -78,8 +78,11 @@ export function applyCesium3DTileStyle(
 }
 
 /**
- * Day/night for mesh 3D Tiles via scene light, not albedo crush.
- * Day: native textures. Night: moonlight on the mesh (keep textures).
+ * Day/night for 3D Tiles meshes using Cesium 1.145 lighting:
+ * DynamicEnvironmentMapManager + scene light + CustomShader (MODIFY_MATERIAL → PBR).
+ * Photogrammetry stores daylight in albedo; the shader pulls exposure down, then
+ * Cesium PBR applies moonlight and the environment map. Do not use the removed
+ * ImageBasedLighting.luminanceAtZenith API.
  */
 export function applyTilesetTimeOfDay(
   Cesium: CesiumNS,
@@ -94,46 +97,19 @@ export function applyTilesetTimeOfDay(
 ) {
   if (!tileset) return;
 
-  try {
-    tileset.customShader = undefined;
-  } catch {
-    /* ignore */
-  }
-  try {
-    tileset.style = undefined;
-  } catch {
-    /* ignore */
-  }
   if (stylePreset !== "default") {
     applyCesium3DTileStyle(Cesium, tileset, stylePreset);
+  } else {
+    try {
+      tileset.style = undefined;
+    } catch {
+      /* ignore */
+    }
   }
 
-  const day = mode === "day";
-  try {
-    if (tileset.imageBasedLighting) {
-      tileset.imageBasedLighting.imageBasedLightingFactor = day
-        ? new Cesium.Cartesian2(1.0, 1.0)
-        : new Cesium.Cartesian2(0.22, 0.12);
-    }
-  } catch {
-    /* ignore */
-  }
-  try {
-    if ("luminanceAtZenith" in tileset) {
-      tileset.luminanceAtZenith = day ? 0.5 : 0.08;
-    }
-  } catch {
-    /* ignore */
-  }
-  try {
-    if ("lightColor" in tileset) {
-      tileset.lightColor = day
-        ? new Cesium.Cartesian3(1.6, 1.55, 1.45)
-        : new Cesium.Cartesian3(0.45, 0.52, 0.78);
-    }
-  } catch {
-    /* ignore */
-  }
+  applyTilesetEnvironment(Cesium, tileset, mode);
+  applyTilesetMeshShader(Cesium, tileset, mode);
+
   try {
     if (Cesium.Cesium3DTileColorBlendMode) {
       tileset.colorBlendMode = Cesium.Cesium3DTileColorBlendMode.HIGHLIGHT;
@@ -141,6 +117,101 @@ export function applyTilesetTimeOfDay(
     }
   } catch {
     /* ignore */
+  }
+}
+
+function applyTilesetEnvironment(
+  Cesium: CesiumNS,
+  tileset: any,
+  mode: "day" | "night"
+) {
+  const day = mode === "day";
+
+  try {
+    if (tileset.imageBasedLighting) {
+      tileset.imageBasedLighting.imageBasedLightingFactor = day
+        ? new Cesium.Cartesian2(1.0, 1.0)
+        : new Cesium.Cartesian2(0.85, 0.55);
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const env = tileset.environmentMapManager;
+  if (env) {
+    try {
+      env.enabled = true;
+      env.atmosphereScatteringIntensity = day ? 2.4 : 0.45;
+      env.brightness = day ? 1.12 : 0.42;
+      env.gamma = day ? 1.0 : 1.15;
+      env.saturation = day ? 1.0 : 0.55;
+      env.groundAlbedo = day ? 0.31 : 0.08;
+      if (Cesium.Color) {
+        env.groundColor = day
+          ? Cesium.Color.fromCssColorString("#3d5a3a")
+          : Cesium.Color.fromCssColorString("#050814");
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  try {
+    // undefined → Cesium uses scene.light (sun by day, moon by night)
+    tileset.lightColor = day
+      ? new Cesium.Cartesian3(1.55, 1.48, 1.35)
+      : new Cesium.Cartesian3(0.55, 0.68, 1.15);
+  } catch {
+    /* ignore */
+  }
+}
+
+function applyTilesetMeshShader(
+  Cesium: CesiumNS,
+  tileset: any,
+  mode: "day" | "night"
+) {
+  const prev = tileset.customShader;
+  if (mode === "day") {
+    try {
+      tileset.customShader = undefined;
+    } catch {
+      /* ignore */
+    }
+    try {
+      prev?.destroy?.();
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+
+  if (!Cesium.CustomShader) return;
+
+  try {
+    tileset.customShader = new Cesium.CustomShader({
+      mode: Cesium.CustomShaderMode?.MODIFY_MATERIAL,
+      lightingModel: Cesium.LightingModel.PBR,
+      fragmentShaderText: `
+void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+  // Photogrammetry albedo is a daylight photo. Scale it so PBR moonlight can read.
+  material.diffuse *= vec3(0.22, 0.28, 0.48);
+  material.emissive = vec3(0.0);
+}
+`,
+    });
+    try {
+      if (prev && prev !== tileset.customShader) prev.destroy?.();
+    } catch {
+      /* ignore */
+    }
+  } catch (err) {
+    console.warn("Tileset night PBR shader failed", err);
+    try {
+      tileset.customShader = prev;
+    } catch {
+      /* ignore */
+    }
   }
 }
 

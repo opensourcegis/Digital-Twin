@@ -79,11 +79,7 @@ import {
   type PoleLightCaches,
 } from "@/lib/twin/pole-lights";
 import type { Alert, WalkthroughMode } from "@/lib/twin/types";
-import {
-  applyCampusTimeOfDay,
-  emptyCampusLightExtras,
-  type CampusLightExtras,
-} from "@/lib/twin/campus-lighting";
+import { applyCampusTimeOfDay } from "@/lib/twin/campus-lighting";
 import { TWIN_LOOK, buildingLook } from "@/lib/twin/visual-theme";
 import type { SceneWeather } from "@/lib/weather/types";
 import {
@@ -236,7 +232,6 @@ export function CesiumViewer({
     glows: new Map(),
     beams: new Map(),
   });
-  const campusLightExtras = useRef<CampusLightExtras>(emptyCampusLightExtras());
   const robotHandle = useRef<AtlasRobotHandle | null>(null);
   const robotPoseRef = useRef<RobotPose>({ ...ROBOT_SPAWN });
   const wanderRef = useRef(createWanderController(7));
@@ -645,7 +640,14 @@ export function CesiumViewer({
         canvas.tabIndex = 0;
       }
 
-      applyTimeOfDay(Cesium, viewer, timeOfDayRef.current, weatherRef.current, CAMPUS.lon);
+      applyTimeOfDay(
+        Cesium,
+        viewer,
+        timeOfDayRef.current,
+        weatherRef.current,
+        CAMPUS.lon,
+        CAMPUS.lat
+      );
       const home =
         platformSettingsRef.current?.simulation.cameraHome ??
         DEFAULT_SIMULATION.cameraHome;
@@ -693,8 +695,7 @@ export function CesiumViewer({
         Cesium,
         viewer,
         timeOfDayRef.current,
-        layerEntities.current,
-        campusLightExtras.current
+        layerEntities.current
       );
 
       const seed: PlacedPole[] = [
@@ -1387,7 +1388,8 @@ export function CesiumViewer({
       viewer,
       weather ?? null,
       timeOfDay,
-      CAMPUS.lon
+      CAMPUS.lon,
+      CAMPUS.lat
     );
     applyTilesetTimeOfDay(
       Cesium,
@@ -1413,8 +1415,7 @@ export function CesiumViewer({
       Cesium,
       viewer,
       timeOfDay,
-      layerEntities.current,
-      campusLightExtras.current
+      layerEntities.current
     );
     viewer.scene.requestRender();
     // Wind particles disabled — don't force continuous render for weather alone
@@ -2355,8 +2356,7 @@ export function CesiumViewer({
       Cesium,
       viewer,
       timeOfDayRef.current,
-      layerEntities.current,
-      campusLightExtras.current
+      layerEntities.current
     );
     applySensorSymbology(
       Cesium,

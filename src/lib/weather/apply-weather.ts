@@ -1,6 +1,6 @@
 import type { SceneWeather } from "./types";
 import type { TimeOfDay } from "@/lib/types";
-import { CAMPUS_WEATHER_LON } from "./types";
+import { CAMPUS_WEATHER_LAT, CAMPUS_WEATHER_LON } from "./types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type CesiumNS = any;
@@ -64,6 +64,25 @@ export function syncSolarClock(Cesium: CesiumNS, viewer: any) {
   viewer.clock.multiplier = 1;
 }
 
+/** Moonlight traveling onto the site (ENU → ECEF). World-fixed vectors miss the campus. */
+function moonlightDirection(
+  Cesium: CesiumNS,
+  lon: number,
+  lat: number
+) {
+  const origin = Cesium.Cartesian3.fromDegrees(lon, lat);
+  const enu = Cesium.Transforms.eastNorthUpToFixedFrame(origin);
+  const local = Cesium.Cartesian3.normalize(
+    new Cesium.Cartesian3(-0.42, 0.22, -0.88),
+    new Cesium.Cartesian3()
+  );
+  return Cesium.Matrix4.multiplyByPointAsVector(
+    enu,
+    local,
+    new Cesium.Cartesian3()
+  );
+}
+
 function disableBrightnessCrush(viewer: any) {
   const stage =
     viewer?.[SCENE_BRIGHTNESS_TAG] ?? viewer?.__twinNightBrightness;
@@ -85,7 +104,8 @@ export function applyTimeOfDay(
   viewer: any,
   mode: TimeOfDay,
   weather: SceneWeather | null = null,
-  siteLon: number = CAMPUS_WEATHER_LON
+  siteLon: number = CAMPUS_WEATHER_LON,
+  siteLat: number = CAMPUS_WEATHER_LAT
 ) {
   const scene = viewer.scene;
   try {
@@ -95,6 +115,14 @@ export function applyTimeOfDay(
   }
   scene.globe.enableLighting = true;
   scene.globe.dynamicAtmosphereLighting = true;
+  try {
+    if (scene.atmosphere && Cesium.DynamicAtmosphereLightingType) {
+      scene.atmosphere.dynamicLighting =
+        Cesium.DynamicAtmosphereLightingType.SCENE_LIGHT;
+    }
+  } catch {
+    /* ignore */
+  }
   disableBrightnessCrush(viewer);
   setSunClock(Cesium, viewer, mode, siteLon);
 
@@ -138,9 +166,9 @@ export function applyTimeOfDay(
       /* ignore */
     }
     scene.light = new Cesium.DirectionalLight({
-      direction: new Cesium.Cartesian3(0.18, 0.4, -0.9),
-      color: Cesium.Color.fromCssColorString("#a8b8d4"),
-      intensity: 0.62,
+      direction: moonlightDirection(Cesium, siteLon, siteLat),
+      color: Cesium.Color.fromCssColorString("#c5d4f0"),
+      intensity: 1.65,
     });
     scene.globe.atmosphereLightIntensity = 4.2;
     scene.globe.baseColor = Cesium.Color.fromCssColorString("#05080f");
@@ -209,10 +237,11 @@ export function applyWeatherToScene(
   viewer: any,
   weather: SceneWeather | null,
   timeOfDay: TimeOfDay,
-  siteLon: number = CAMPUS_WEATHER_LON
+  siteLon: number = CAMPUS_WEATHER_LON,
+  siteLat: number = CAMPUS_WEATHER_LAT
 ) {
   const scene = viewer.scene;
-  applyTimeOfDay(Cesium, viewer, timeOfDay, weather, siteLon);
+  applyTimeOfDay(Cesium, viewer, timeOfDay, weather, siteLon, siteLat);
 
   if (!weather) {
     syncWeatherClouds(Cesium, viewer, null, timeOfDay);
