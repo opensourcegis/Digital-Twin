@@ -28,6 +28,19 @@ import {
 } from "@/lib/twin/keyboard-walk";
 import { pickSurfaceCartesian } from "@/lib/twin/pick-surface";
 import {
+  applyCesium3DTileStyle,
+  applyDrapeToEntities,
+  clearClippingPolygons,
+  createIonSnapper,
+  loadVectorOrMeshTileset,
+  setClippingPolygons,
+  snapAgainstBim,
+  upsertClipPreview,
+  type ClipRing,
+  type DrapeMode,
+  type TilesetStylePreset,
+} from "@/lib/twin/cesium-advanced";
+import {
   isPoseOnTileset,
   poseAtTilesetCenter,
   sampleSurfaceHeightEnu,
@@ -92,6 +105,12 @@ interface ViewerProps {
   poleLightsOn: boolean;
   robot: RobotState;
   tilesetUrl: string;
+  /** Additional vector/mesh 3D Tiles URL (Cesium 1.145 vector tiles) */
+  vectorTilesUrl?: string;
+  /** Drape GeoJSON vectors onto terrain / 3D Tiles */
+  drapeMode?: DrapeMode;
+  tilesetStylePreset?: TilesetStylePreset;
+  clipInverse?: boolean;
   symbology?: Record<string, { color: string; pulse: boolean }>;
   walkthroughMode?: WalkthroughMode;
   alerts?: Alert[];
@@ -160,6 +179,10 @@ export function CesiumViewer({
   poleLightsOn,
   robot,
   tilesetUrl,
+  vectorTilesUrl = "",
+  drapeMode = "both",
+  tilesetStylePreset = "default",
+  clipInverse = false,
   symbology = {},
   walkthroughMode = "off",
   alerts = [],
@@ -176,6 +199,14 @@ export function CesiumViewer({
   const viewerRef = useRef<any>(null);
   const layerEntities = useRef<Record<string, any[]>>({});
   const tilesetRef = useRef<any>(null);
+  const vectorTilesetRef = useRef<any>(null);
+  const ionSnapperRef = useRef<any>(null);
+  const clipOuterRef = useRef<ClipRing>([]);
+  const clipHolesRef = useRef<ClipRing[]>([]);
+  const clipHoleDraftRef = useRef<ClipRing>([]);
+  const clipPreviewRef = useRef<any>(null);
+  const clipInverseRef = useRef(clipInverse);
+  const drapeModeRef = useRef(drapeMode);
   const measureEntities = useRef<any[]>([]);
   const measurePoints = useRef<any[]>([]);
   const drawLinePoints = useRef<any[]>([]);
@@ -228,6 +259,8 @@ export function CesiumViewer({
   polesRef.current = poles;
   toolRef.current = tool;
   poleLightsRef.current = poleLightsOn;
+  clipInverseRef.current = clipInverse;
+  drapeModeRef.current = drapeMode;
   timeOfDayRef.current = timeOfDay;
   platformSettingsRef.current = platformSettings;
   onPolesChangeRef.current = onPolesChange;
@@ -672,6 +705,109 @@ export function CesiumViewer({
           return;
         }
 
+        if (t === "clip-polygon" || t === "clip-hole") {
+          const hit = pickSurfaceCartesian(Cesium, viewer, movement.position, {
+            tileset: tilesetRef.current,
+            exclude: robotHandle.current?.entities ?? [],
+          });
+          if (!hit) {
+            onStatusRef.current("Click ground or tileset to add clip vertex");
+            return;
+          }
+          const pt = { lon: hit.lon, lat: hit.lat, height: hit.height };
+          if (t === "clip-polygon") {
+            clipOuterRef.current = [...clipOuterRef.current, pt];
+            clipHoleDraftRef.current = [];
+          } else {
+            clipHoleDraftRef.current = [...clipHoleDraftRef.current, pt];
+          }
+          clipPreviewRef.current = upsertClipPreview(
+            Cesium,
+            viewer,
+            clipPreviewRef.current,
+            clipOuterRef.current,
+            [
+              ...clipHolesRef.current,
+              ...(clipHoleDraftRef.current.length
+                ? [clipHoleDraftRef.current]
+                : []),
+            ]
+          );
+          onStatusRef.current(
+            t === "clip-polygon"
+              ? `Clip outer ring · ${clipOuterRef.current.length} pts — double-click to apply`
+              : `Clip hole · ${clipHoleDraftRef.current.length} pts — double-click to close hole`
+          );
+          viewer.scene.requestRender();
+          return;
+        }
+
+        if (t === "bim-snap") {
+          void (async () => {
+            const result = await snapAgainstBim(
+              Cesium,
+              viewer,
+              ionSnapperRef.current,
+              {
+                windowPosition: {
+                  x: movement.position.x,
+                  y: movement.position.y,
+                },
+              }
+            );
+            if (result.ok && result.snapPoint) {
+              const p = result.snapPoint;
+              const ent = viewer.entities.add({
+                position: Cesium.Cartesian3.fromDegrees(
+                  p.lon,
+                  p.lat,
+                  p.height,
+                  Cesium.Ellipsoid.WGS84
+                ),
+                point: {
+                  pixelSize: 12,
+                  color: Cesium.Color.fromCssColorString("#a78bfa"),
+                  outlineColor: Cesium.Color.WHITE,
+                  outlineWidth: 1,
+                  disableDepthTestDistance: Number.POSITIVE_INFINITY,
+                },
+                label: {
+                  text: result.geometryType
+                    ? `Snap · ${result.geometryType}`
+                    : "Snap",
+                  font: "600 11px DM Sans, sans-serif",
+                  fillColor: Cesium.Color.WHITE,
+                  showBackground: true,
+                  backgroundColor: Cesium.Color.fromCssColorString(
+                    "#1e1b4b"
+                  ).withAlpha(0.85),
+                  pixelOffset: new Cesium.Cartesian2(0, -16),
+                  disableDepthTestDistance: Number.POSITIVE_INFINITY,
+                },
+              });
+              measureEntities.current.push(ent);
+              onMeasureRef.current({
+                kind: "identify",
+                label: result.message,
+                value: `${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}`,
+                detail:
+                  result.detail ??
+                  `h ${p.height.toFixed(3)} m (WGS84 ellipsoidal)`,
+              });
+              onStatusRef.current(result.message);
+            } else {
+              onStatusRef.current(result.message);
+              reportTwinError({
+                source: "BIM snap",
+                message: result.message,
+                detail: result.detail,
+              });
+            }
+            viewer.scene.requestRender();
+          })();
+          return;
+        }
+
         const cartesian = pickGround(Cesium, viewer, movement.position);
         if (!cartesian) return;
 
@@ -926,6 +1062,63 @@ export function CesiumViewer({
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
       handler.setInputAction(() => {
+        const t = toolRef.current;
+        if (t === "clip-hole" && clipHoleDraftRef.current.length >= 3) {
+          clipHolesRef.current = [
+            ...clipHolesRef.current,
+            clipHoleDraftRef.current,
+          ];
+          clipHoleDraftRef.current = [];
+          clipPreviewRef.current = upsertClipPreview(
+            Cesium,
+            viewer,
+            clipPreviewRef.current,
+            clipOuterRef.current,
+            clipHolesRef.current
+          );
+          onStatusRef.current(
+            `Hole added · ${clipHolesRef.current.length} hole(s) — switch to Clip polygon & double-click to apply`
+          );
+          viewer.scene.requestRender();
+          return;
+        }
+        if (t === "clip-polygon" && clipOuterRef.current.length >= 3) {
+          // Finalize any open hole draft
+          if (clipHoleDraftRef.current.length >= 3) {
+            clipHolesRef.current = [
+              ...clipHolesRef.current,
+              clipHoleDraftRef.current,
+            ];
+            clipHoleDraftRef.current = [];
+          }
+          setClippingPolygons(
+            Cesium,
+            {
+              tileset: tilesetRef.current ?? vectorTilesetRef.current,
+              globe: viewer.scene.globe,
+            },
+            {
+              outer: clipOuterRef.current,
+              holes: clipHolesRef.current,
+              inverse: clipInverseRef.current,
+              enabled: true,
+            }
+          );
+          onStatusRef.current(
+            `Clipping applied · ${clipOuterRef.current.length} outer / ${clipHolesRef.current.length} hole(s)${
+              clipInverseRef.current ? " · inverse" : ""
+            }`
+          );
+          onMeasureRef.current({
+            kind: "identify",
+            label: "Clipping polygon",
+            value: `${clipOuterRef.current.length} pts`,
+            detail: `${clipHolesRef.current.length} hole(s) · Cesium 1.145 ClippingPolygon`,
+          });
+          viewer.scene.requestRender();
+          return;
+        }
+
         if (
           toolRef.current === "draw-poles" &&
           drawLinePoints.current.length >= 2
@@ -1307,6 +1500,7 @@ export function CesiumViewer({
           }
           viewer.scene.primitives.add(tileset);
           tilesetRef.current = tileset;
+          applyCesium3DTileStyle(Cesium, tileset, tilesetStylePreset);
           pauseWalkChase(20_000);
           markUserCameraControl(viewer);
 
@@ -1456,6 +1650,136 @@ export function CesiumViewer({
     config.cesiumIonAssetId,
     config.cesiumIonToken,
   ]);
+
+  // Cesium 1.145 — vector / secondary 3D Tileset
+  useEffect(() => {
+    const Cesium = cesiumRef.current;
+    const viewer = viewerRef.current;
+    if (!Cesium || !viewer || !readyRef.current) return;
+    let cancelled = false;
+
+    async function loadVector() {
+      if (vectorTilesetRef.current) {
+        viewer.scene.primitives.remove(vectorTilesetRef.current);
+        vectorTilesetRef.current = null;
+      }
+      const url = vectorTilesUrl.trim();
+      if (!url) return;
+      try {
+        onStatusRef.current("Loading vector / secondary 3D Tiles…");
+        const tileset = await loadVectorOrMeshTileset(Cesium, viewer, url, {
+          stylePreset: tilesetStylePreset,
+          maximumScreenSpaceError: 12,
+        });
+        if (cancelled) {
+          viewer.scene.primitives.remove(tileset);
+          return;
+        }
+        vectorTilesetRef.current = tileset;
+        pauseWalkChase(12_000);
+        markUserCameraControl(viewer);
+        try {
+          await viewer.zoomTo(tileset);
+        } catch {
+          /* ignore */
+        }
+        onStatusRef.current("Vector / secondary 3D Tiles loaded");
+        notifyTilesetReady(url);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        onStatusRef.current(`Vector tileset error: ${msg}`);
+        reportTwinError({
+          source: "Vector 3D Tiles",
+          message: "Failed to load vector/secondary tileset",
+          detail: msg,
+        });
+      }
+    }
+    void loadVector();
+    return () => {
+      cancelled = true;
+    };
+  }, [vectorTilesUrl, sceneReadyTick, tilesetStylePreset]);
+
+  // Cesium 1.145 — drape roads/utilities/custom GeoJSON on terrain & 3D Tiles
+  useEffect(() => {
+    const Cesium = cesiumRef.current;
+    const viewer = viewerRef.current;
+    if (!Cesium || !viewer || !readyRef.current) return;
+    const bags = [
+      layerEntities.current.roads,
+      layerEntities.current.utilities,
+      ...Array.from(customLayerEntities.current.values()),
+    ];
+    for (const ents of bags) {
+      if (ents?.length) applyDrapeToEntities(Cesium, ents, drapeMode);
+    }
+    viewer.scene.requestRender();
+    onStatusRef.current(
+      drapeMode === "none"
+        ? "Vector drape off"
+        : `Vector drape → ${drapeMode} (Cesium 1.145 ClassificationType)`
+    );
+  }, [drapeMode, sceneReadyTick, layers, tilesetUrl]);
+
+  // Style presets for mesh + vector tilesets
+  useEffect(() => {
+    const Cesium = cesiumRef.current;
+    if (!Cesium || !readyRef.current) return;
+    if (tilesetRef.current) {
+      applyCesium3DTileStyle(Cesium, tilesetRef.current, tilesetStylePreset);
+    }
+    if (vectorTilesetRef.current) {
+      applyCesium3DTileStyle(
+        Cesium,
+        vectorTilesetRef.current,
+        tilesetStylePreset
+      );
+    }
+    viewerRef.current?.scene.requestRender();
+  }, [tilesetStylePreset, tilesetUrl, vectorTilesUrl, sceneReadyTick]);
+
+  // IonSnapService when ion token + asset configured
+  useEffect(() => {
+    let cancelled = false;
+    async function initSnap() {
+      ionSnapperRef.current = null;
+      const Cesium = cesiumRef.current;
+      if (!Cesium || !readyRef.current) return;
+      const token = config.cesiumIonToken;
+      const assetId = Number(config.cesiumIonAssetId);
+      if (!token || !Number.isFinite(assetId) || assetId <= 0) return;
+      const snapper = await createIonSnapper(Cesium, assetId, token);
+      if (!cancelled) ionSnapperRef.current = snapper;
+    }
+    void initSnap();
+    return () => {
+      cancelled = true;
+    };
+  }, [config.cesiumIonToken, config.cesiumIonAssetId, sceneReadyTick]);
+
+  // Clear clipping
+  useEffect(() => {
+    const clear = () => {
+      const Cesium = cesiumRef.current;
+      const viewer = viewerRef.current;
+      clearClippingPolygons({
+        tileset: tilesetRef.current ?? vectorTilesetRef.current,
+        globe: viewer?.scene?.globe,
+      });
+      clipOuterRef.current = [];
+      clipHolesRef.current = [];
+      clipHoleDraftRef.current = [];
+      if (clipPreviewRef.current && viewer) {
+        viewer.entities.remove(clipPreviewRef.current);
+        clipPreviewRef.current = null;
+      }
+      onStatusRef.current("Clipping cleared");
+      viewer?.scene.requestRender();
+    };
+    window.addEventListener("twin-clear-clip", clear);
+    return () => window.removeEventListener("twin-clear-clip", clear);
+  }, []);
 
   const syncRobotPose = useCallback((followCamera: boolean) => {
     const Cesium = cesiumRef.current;
