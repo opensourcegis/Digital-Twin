@@ -58,10 +58,10 @@ export function syncNaturalPoleLight(
   const warmSoft = Cesium.Color.fromCssColorString("#ffb347");
   const steel = Cesium.Color.fromCssColorString("#8b93a7");
 
-  const basePool = lit ? (night ? 0.26 : 0.035) : 0;
-  const baseHot = lit ? (night ? 0.4 : 0.05) : 0;
-  const coneAlpha = lit ? (night ? 0.09 : 0.015) : 0;
-  const lampAlpha = lit ? (night ? 0.95 : 0.3) : 0.12;
+  const basePool = lit ? (night ? 0.45 : 0.05) : 0;
+  const baseHot = lit ? (night ? 0.62 : 0.08) : 0;
+  const coneAlpha = lit ? (night ? 0.16 : 0.025) : 0;
+  const lampAlpha = lit ? (night ? 0.98 : 0.35) : 0.12;
 
   const phase = pole.lon * 40 + pole.lat * 55;
   const flicker = () =>
@@ -136,8 +136,8 @@ export function syncNaturalPoleLight(
       id: `${pole.id}-pool`,
       position: ground,
       ellipse: {
-        semiMajorAxis: 17,
-        semiMinorAxis: 17,
+        semiMajorAxis: 22,
+        semiMinorAxis: 22,
         height: pole.height + 0.04,
         material: new Cesium.ColorMaterialProperty(
           new Cesium.CallbackProperty(
@@ -171,8 +171,8 @@ export function syncNaturalPoleLight(
       id: `${pole.id}-hot`,
       position: ground,
       ellipse: {
-        semiMajorAxis: 5.2,
-        semiMinorAxis: 5.2,
+        semiMajorAxis: 7,
+        semiMinorAxis: 7,
         height: pole.height + 0.05,
         material: new Cesium.ColorMaterialProperty(
           new Cesium.CallbackProperty(
