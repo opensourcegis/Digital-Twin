@@ -605,6 +605,10 @@ export function TwinWorkspace() {
         onStatus={setStatus}
         onAssetSelect={twin.selectAsset}
         onWalkActive={handleWalkActive}
+        onPlaceComplete={() => {
+          setTool("navigate");
+          setStatus("Robot placed — camera follows WASD");
+        }}
         robotResetToken={robotResetToken}
       />
 

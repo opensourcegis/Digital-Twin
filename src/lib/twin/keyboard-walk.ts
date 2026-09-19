@@ -1,4 +1,3 @@
-import { constrainToCampusRoads } from "@/lib/twin/campus-roads";
 import {
   offsetPoseEnu,
   sampleSurfaceHeightEnu,
@@ -323,10 +322,7 @@ export function attachKeyboardWalk(
         if (surface === "campus") {
           lon = clamp(lon, CAMPUS_WALK_BOUNDS.minLon, CAMPUS_WALK_BOUNDS.maxLon);
           lat = clamp(lat, CAMPUS_WALK_BOUNDS.minLat, CAMPUS_WALK_BOUNDS.maxLat);
-          // Soft corridor — preserves heading-relative W/S (hard snap forced one road axis)
-          const kept = constrainToCampusRoads(lon, lat, 10);
-          lon = kept.lon;
-          lat = kept.lat;
+          // Free roam inside campus bounds — no road corridor fence
         }
         const height = sampleSurfaceHeightEnu(
           Cesium,
