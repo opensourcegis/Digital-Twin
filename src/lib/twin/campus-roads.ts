@@ -97,6 +97,29 @@ export function snapToCampusRoads(lon: number, lat: number): LonLat {
   return best;
 }
 
+/**
+ * Soft road corridor for WASD — keep the robot near roads without projecting
+ * every step onto the centerline (hard snap made W always slide along one axis).
+ */
+export function constrainToCampusRoads(
+  lon: number,
+  lat: number,
+  corridorM = 10
+): LonLat {
+  const snapped = snapToCampusRoads(lon, lat);
+  const mPerDegLat = 110540;
+  const mPerDegLon = 111320 * Math.cos((lat * Math.PI) / 180);
+  const dx = (lon - snapped.lon) * mPerDegLon;
+  const dy = (lat - snapped.lat) * mPerDegLat;
+  const dist = Math.hypot(dx, dy);
+  if (dist <= corridorM || dist < 1e-6) return { lon, lat };
+  const scale = corridorM / dist;
+  return {
+    lon: snapped.lon + (dx * scale) / mPerDegLon,
+    lat: snapped.lat + (dy * scale) / mPerDegLat,
+  };
+}
+
 /** True if point is within ~corridorM meters of a road. */
 export function nearCampusRoad(
   lon: number,

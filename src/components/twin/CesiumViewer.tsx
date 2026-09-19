@@ -82,7 +82,6 @@ import {
   applyTimeOfDay,
   applyWeatherToScene,
   removeWeatherClouds,
-  weatherWindFactor,
 } from "@/lib/weather/apply-weather";
 import type { PlatformSettings } from "@/lib/platform/types";
 import { DEFAULT_GIS, DEFAULT_SIMULATION } from "@/lib/platform/types";
@@ -696,19 +695,34 @@ export function CesiumViewer({
         const t = toolRef.current;
 
         if (t === "robot-waypoints") {
-          // Do NOT snap camera to the old robot — keep the current layer in view
-          // so the user can click a point on the external tileset.
-          ensureRobotOnActiveTilesetRef.current?.({ snapCamera: false });
+          // Keep camera on the layer the user is looking at — do NOT teleport the
+          // robot onto a tileset before the pick (that jerked the view / re-triggered
+          // translucent sort crashes). Place only where the click hits.
           pauseWalkChase(120_000);
+          markUserCameraControl(viewer);
 
           // Need a rendered depth frame for reliable tileset picks
           viewer.scene.requestRenderMode = false;
           viewer.scene.requestRender();
 
-          const hit = pickSurfaceCartesian(Cesium, viewer, movement.position, {
-            tileset: tilesetRef.current,
-            exclude: robotHandle.current?.entities ?? [],
-          });
+          let hit: ReturnType<typeof pickSurfaceCartesian> = null;
+          try {
+            hit = pickSurfaceCartesian(Cesium, viewer, movement.position, {
+              tileset: tilesetRef.current,
+              exclude: robotHandle.current?.entities ?? [],
+            });
+          } catch (pickErr) {
+            console.warn("Click-to-move pick failed", pickErr);
+            reportTwinError({
+              source: "Click-to-move",
+              message: "Surface pick failed — try again",
+              detail:
+                pickErr instanceof Error ? pickErr.message : String(pickErr),
+            });
+            removeWeatherClouds(viewer);
+            viewer.scene.requestRender();
+            return;
+          }
           if (!hit) {
             if (tilesetRef.current) {
               onStatusRef.current(
@@ -1330,9 +1344,9 @@ export function CesiumViewer({
     const viewer = viewerRef.current;
     if (!Cesium || !viewer) return;
     applyWeatherToScene(Cesium, viewer, weather ?? null, timeOfDay);
-    const windOn = weatherWindFactor(weather ?? null) > 0.08;
-    windActiveRef.current = windOn;
-    if (windOn || robotPlayingRef.current) {
+    // Wind particles disabled — don't force continuous render for weather alone
+    windActiveRef.current = false;
+    if (robotPlayingRef.current) {
       viewer.scene.requestRenderMode = false;
     }
     rebuildPoles();
@@ -2156,16 +2170,16 @@ export function CesiumViewer({
         pauseWalkChase(0);
         const Cesium = cesiumRef.current;
         if (Cesium) {
-          ensureRobotOnActiveTileset({ snapCamera: false });
           enterWalkCamera(Cesium, viewer, robotPoseRef.current);
         }
       }
       return;
     }
 
-    ensureRobotOnActiveTileset({ snapCamera: false });
+    // Stay on the layer in view — don't teleport robot onto a tileset yet
     pauseWalkChase(120_000);
     markUserCameraControl(viewer);
+    removeWeatherClouds(viewer);
     viewer.scene.requestRenderMode = false;
     viewer.scene.requestRender();
     onStatusRef.current(
@@ -2173,7 +2187,7 @@ export function CesiumViewer({
         ? "Click a point on the external tileset to place ATLAS-01"
         : "Click a point on the map to place ATLAS-01"
     );
-  }, [tool, sceneReadyTick, ensureRobotOnActiveTileset]);
+  }, [tool, sceneReadyTick]);
 
   useEffect(() => {
     const Cesium = cesiumRef.current;
