@@ -30,6 +30,7 @@ import { pickSurfaceCartesian } from "@/lib/twin/pick-surface";
 import {
   applyCesium3DTileStyle,
   applyDrapeToEntities,
+  attachTilesetErrorHandlers,
   clearClippingPolygons,
   createIonSnapper,
   loadVectorOrMeshTileset,
@@ -548,6 +549,39 @@ export function CesiumViewer({
 
       viewer.scene.globe.depthTestAgainstTerrain = false;
       viewer.scene.requestRenderMode = true;
+      // Keep rendering after recoverable Cesium errors (bad tile / clip BV)
+      viewer.scene.rethrowRenderErrors = false;
+      try {
+        viewer.scene.renderError.addEventListener(
+          (_scene: unknown, error: unknown) => {
+            const msg =
+              error instanceof Error ? error.message : String(error ?? "render");
+            console.error("Cesium renderError", error);
+            reportTwinError({
+              source: "Cesium render",
+              message: "Rendering error — recovering scene",
+              detail: msg,
+            });
+            // Common crash: clipping / tileset BV undefined — clear clip + drop secondary tileset
+            try {
+              clearClippingPolygons({
+                tileset: tilesetRef.current ?? vectorTilesetRef.current,
+                globe: viewer.scene.globe,
+              });
+              if (vectorTilesetRef.current) {
+                viewer.scene.primitives.remove(vectorTilesetRef.current);
+                vectorTilesetRef.current = null;
+              }
+              viewer.scene.requestRender();
+            } catch (recoverErr) {
+              console.warn("Render recovery failed", recoverErr);
+            }
+            onStatusRef.current(`Cesium render recovered · ${msg.slice(0, 80)}`);
+          }
+        );
+      } catch {
+        /* ignore */
+      }
       // Depth picking for click-to-place on 3D Tiles
       try {
         viewer.scene.pickTranslucentDepth = true;
@@ -1091,19 +1125,39 @@ export function CesiumViewer({
             ];
             clipHoleDraftRef.current = [];
           }
-          setClippingPolygons(
+          const clipOpts = {
+            outer: clipOuterRef.current,
+            holes: clipHolesRef.current,
+            inverse: clipInverseRef.current,
+            enabled: true,
+          };
+          // Separate collections per owner (tileset + globe + vector tileset)
+          const primary = setClippingPolygons(
             Cesium,
             {
-              tileset: tilesetRef.current ?? vectorTilesetRef.current,
+              tileset: tilesetRef.current,
               globe: viewer.scene.globe,
             },
-            {
-              outer: clipOuterRef.current,
-              holes: clipHolesRef.current,
-              inverse: clipInverseRef.current,
-              enabled: true,
-            }
+            clipOpts
           );
+          if (vectorTilesetRef.current) {
+            setClippingPolygons(
+              Cesium,
+              { tileset: vectorTilesetRef.current, globe: null },
+              clipOpts
+            );
+          }
+          if (!primary && !tilesetRef.current && !vectorTilesetRef.current) {
+            onStatusRef.current(
+              "Clipping needs a loaded tileset (or globe-only clip failed)"
+            );
+            reportTwinError({
+              source: "Clipping",
+              message: "Could not apply clipping polygon",
+              detail: "Degenerate ring or no clip target",
+            });
+            return;
+          }
           onStatusRef.current(
             `Clipping applied · ${clipOuterRef.current.length} outer / ${clipHolesRef.current.length} hole(s)${
               clipInverseRef.current ? " · inverse" : ""
@@ -1500,6 +1554,9 @@ export function CesiumViewer({
           }
           viewer.scene.primitives.add(tileset);
           tilesetRef.current = tileset;
+          attachTilesetErrorHandlers(tileset, (message, detail) => {
+            reportTwinError({ source: "3D Tiles", message, detail });
+          });
           applyCesium3DTileStyle(Cesium, tileset, tilesetStylePreset);
           pauseWalkChase(20_000);
           markUserCameraControl(viewer);
@@ -1592,6 +1649,9 @@ export function CesiumViewer({
           if (cancelled) return;
           viewer.scene.primitives.add(tileset);
           tilesetRef.current = tileset;
+          attachTilesetErrorHandlers(tileset, (message, detail) => {
+            reportTwinError({ source: "Ion 3D Tiles", message, detail });
+          });
           pauseWalkChase(12_000);
           markUserCameraControl(viewer);
           const zoomResult = await zoomCameraToLayer(
@@ -1651,7 +1711,7 @@ export function CesiumViewer({
     config.cesiumIonToken,
   ]);
 
-  // Cesium 1.145 — vector / secondary 3D Tileset
+  // Cesium 1.145 — vector / secondary 3D Tileset (do not reload on style change)
   useEffect(() => {
     const Cesium = cesiumRef.current;
     const viewer = viewerRef.current;
@@ -1660,7 +1720,15 @@ export function CesiumViewer({
 
     async function loadVector() {
       if (vectorTilesetRef.current) {
-        viewer.scene.primitives.remove(vectorTilesetRef.current);
+        try {
+          clearClippingPolygons({
+            tileset: vectorTilesetRef.current,
+            globe: null,
+          });
+          viewer.scene.primitives.remove(vectorTilesetRef.current);
+        } catch {
+          /* ignore */
+        }
         vectorTilesetRef.current = null;
       }
       const url = vectorTilesUrl.trim();
@@ -1673,6 +1741,20 @@ export function CesiumViewer({
         });
         if (cancelled) {
           viewer.scene.primitives.remove(tileset);
+          return;
+        }
+        attachTilesetErrorHandlers(tileset, (message, detail) => {
+          reportTwinError({ source: "Vector 3D Tiles", message, detail });
+        });
+        // Guard: tileset must expose a usable root BV before we keep it
+        const bs = tileset.boundingSphere;
+        if (!bs || !(bs.radius > 0)) {
+          viewer.scene.primitives.remove(tileset);
+          reportTwinError({
+            source: "Vector 3D Tiles",
+            message: "Tileset has no bounding volume — not added to scene",
+            detail: url,
+          });
           return;
         }
         vectorTilesetRef.current = tileset;
@@ -1699,7 +1781,8 @@ export function CesiumViewer({
     return () => {
       cancelled = true;
     };
-  }, [vectorTilesUrl, sceneReadyTick, tilesetStylePreset]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- style applied in separate effect
+  }, [vectorTilesUrl, sceneReadyTick]);
 
   // Cesium 1.145 — drape roads/utilities/custom GeoJSON on terrain & 3D Tiles
   useEffect(() => {
@@ -1715,26 +1798,29 @@ export function CesiumViewer({
       if (ents?.length) applyDrapeToEntities(Cesium, ents, drapeMode);
     }
     viewer.scene.requestRender();
-    onStatusRef.current(
-      drapeMode === "none"
-        ? "Vector drape off"
-        : `Vector drape → ${drapeMode} (Cesium 1.145 ClassificationType)`
-    );
   }, [drapeMode, sceneReadyTick, layers, tilesetUrl]);
 
   // Style presets for mesh + vector tilesets
   useEffect(() => {
     const Cesium = cesiumRef.current;
     if (!Cesium || !readyRef.current) return;
-    if (tilesetRef.current) {
-      applyCesium3DTileStyle(Cesium, tilesetRef.current, tilesetStylePreset);
-    }
-    if (vectorTilesetRef.current) {
-      applyCesium3DTileStyle(
-        Cesium,
-        vectorTilesetRef.current,
-        tilesetStylePreset
-      );
+    try {
+      if (tilesetRef.current) {
+        applyCesium3DTileStyle(Cesium, tilesetRef.current, tilesetStylePreset);
+      }
+      if (vectorTilesetRef.current) {
+        applyCesium3DTileStyle(
+          Cesium,
+          vectorTilesetRef.current,
+          tilesetStylePreset
+        );
+      }
+    } catch (err) {
+      reportTwinError({
+        source: "3D Tiles style",
+        message: "Failed to apply Cesium3DTileStyle",
+        detail: err instanceof Error ? err.message : String(err),
+      });
     }
     viewerRef.current?.scene.requestRender();
   }, [tilesetStylePreset, tilesetUrl, vectorTilesUrl, sceneReadyTick]);
@@ -1767,6 +1853,12 @@ export function CesiumViewer({
         tileset: tilesetRef.current ?? vectorTilesetRef.current,
         globe: viewer?.scene?.globe,
       });
+      if (tilesetRef.current && vectorTilesetRef.current) {
+        clearClippingPolygons({
+          tileset: vectorTilesetRef.current,
+          globe: null,
+        });
+      }
       clipOuterRef.current = [];
       clipHolesRef.current = [];
       clipHoleDraftRef.current = [];
