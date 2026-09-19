@@ -82,6 +82,11 @@ export interface WalkAttachOptions {
   getTileset?: () => any | null;
   /** When false, left-drag won't orbit (e.g. while click-to-place is active) */
   getAllowOrbitDrag?: () => boolean;
+  /**
+   * When true, never snap the chase camera to the robot — keep the current view
+   * (Click-to-move on an external tileset must not yank back to the robot).
+   */
+  getHoldCamera?: () => boolean;
 }
 
 /** @deprecated Prefer sampleSurfaceHeightEnu from geo-frame */
@@ -207,6 +212,8 @@ export function attachKeyboardWalk(
   const getExclude = () => options?.getExcludeObjects?.() ?? [];
   const getTileset = () => options?.getTileset?.() ?? null;
   const getAllowOrbit = () => options?.getAllowOrbitDrag?.() ?? true;
+  const holdCamera = () =>
+    Boolean(options?.getHoldCamera?.()) || isWalkChasePaused();
 
   const camOpts = () => ({
     yawOffset,
@@ -252,7 +259,11 @@ export function attachKeyboardWalk(
         lookPitch = CHASE_PITCH;
         backM = CHASE_BACK_M;
         upM = CHASE_UP_M;
-        applyWalkCamera(Cesium, viewer, driver.getPose(), camOpts());
+        // Do NOT yank to robot when Click-to-move / zoom hold is active —
+        // user may be looking at an external tileset to place on.
+        if (!holdCamera()) {
+          applyWalkCamera(Cesium, viewer, driver.getPose(), camOpts());
+        }
       }
       lastMode = mode;
     }
@@ -341,7 +352,7 @@ export function attachKeyboardWalk(
       driver.setPose(pose);
     }
 
-    if (!isWalkChasePaused()) {
+    if (!holdCamera()) {
       applyWalkCamera(Cesium, viewer, driver.getPose(), camOpts());
     }
     viewer.scene.requestRenderMode = false;

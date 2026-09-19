@@ -79,6 +79,7 @@ import type { DockModuleId } from "@/lib/platform/types";
 import { ErrorDashboard, type TwinError } from "@/components/twin/ErrorDashboard";
 import { requestZoomToLayer } from "@/lib/twin/zoom-to-layer";
 import type { TwinErrorEvent, ZoomLayerTarget } from "@/lib/twin/zoom-to-layer";
+import { pauseWalkChase } from "@/lib/twin/keyboard-walk";
 import {
   TILESET_STYLE_PRESETS,
   type DrapeMode,
@@ -862,6 +863,10 @@ export function TwinWorkspace() {
                           tool === "robot-waypoints" ? "default" : "secondary"
                         }
                         onClick={() => {
+                          // Freeze chase BEFORE walk mode flips — otherwise the
+                          // keyboard-walk RAF snaps the camera to the robot and
+                          // leaves the external tileset the user was viewing.
+                          pauseWalkChase(120_000);
                           setTool("robot-waypoints");
                           twin.setWalkthroughMode("walk");
                           setRobot((r) => ({ ...r, playing: false }));
@@ -1131,6 +1136,11 @@ export function TwinWorkspace() {
                             variant={active ? "default" : "ghost"}
                             className="justify-start"
                             onClick={() => {
+                              if (t.id === "robot-waypoints") {
+                                pauseWalkChase(120_000);
+                                twin.setWalkthroughMode("walk");
+                                setRobot((r) => ({ ...r, playing: false }));
+                              }
                               setTool(t.id);
                               if (
                                 t.id === "measure-distance" ||
