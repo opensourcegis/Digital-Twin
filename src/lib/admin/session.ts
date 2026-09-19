@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
 
-const COOKIE = "twinbench_admin";
+export const ADMIN_COOKIE = "twinbench_admin";
 const SECRET =
   process.env.ADMIN_SESSION_SECRET ?? "twinbench-dev-session-secret";
 export const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "twinbench";
@@ -34,22 +34,23 @@ export function verifySessionToken(token: string | undefined): boolean {
 
 export async function getAdminSession(): Promise<boolean> {
   const jar = await cookies();
-  return verifySessionToken(jar.get(COOKIE)?.value);
+  return verifySessionToken(jar.get(ADMIN_COOKIE)?.value);
 }
 
 export async function setAdminSession(): Promise<void> {
   const jar = await cookies();
-  jar.set(COOKIE, createSessionToken(), {
+  jar.set(ADMIN_COOKIE, createSessionToken(), {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
     maxAge: 86400,
+    secure: process.env.NODE_ENV === "production",
   });
 }
 
 export async function clearAdminSession(): Promise<void> {
   const jar = await cookies();
-  jar.delete(COOKIE);
+  jar.delete(ADMIN_COOKIE);
 }
 
 export function unauthorized() {

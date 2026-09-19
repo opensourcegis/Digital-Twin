@@ -57,6 +57,11 @@ import type { SceneWeather } from "@/lib/weather/types";
 import { applyWeatherToScene } from "@/lib/weather/apply-weather";
 import type { PlatformSettings } from "@/lib/platform/types";
 import { DEFAULT_GIS, DEFAULT_SIMULATION } from "@/lib/platform/types";
+import {
+  zoomCameraToLayer,
+  type ZoomLayerTarget,
+} from "@/lib/twin/zoom-to-layer";
+import { markUserCameraControl } from "@/lib/twin/camera-controls";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type CesiumNS = any;
@@ -963,6 +968,30 @@ export function CesiumViewer({
   useEffect(() => {
     rebuildPoles();
   }, [poles, poleLightsOn, rebuildPoles]);
+
+  useEffect(() => {
+    const onZoomLayer = (e: Event) => {
+      const Cesium = cesiumRef.current;
+      const viewer = viewerRef.current;
+      if (!Cesium || !viewer || !readyRef.current) return;
+      const detail = (e as CustomEvent<ZoomLayerTarget>).detail;
+      if (!detail?.configId) return;
+      markUserCameraControl(viewer);
+      const ok = zoomCameraToLayer(Cesium, viewer, detail, {
+        layerEntities: layerEntities.current,
+        customLayerEntities: customLayerEntities.current,
+        tileset: tilesetRef.current,
+        poles: poleLightCaches.current.poles,
+        robotRoot: robotHandle.current?.root ?? null,
+      });
+      onStatusRef.current(
+        ok ? `Zoomed to layer` : "No geometry to zoom for that layer"
+      );
+      viewer.scene.requestRender();
+    };
+    window.addEventListener("twin-zoom-layer", onZoomLayer);
+    return () => window.removeEventListener("twin-zoom-layer", onZoomLayer);
+  }, []);
 
   useEffect(() => {
     const viewer = viewerRef.current;

@@ -140,7 +140,7 @@ export function LayerAdminDashboard() {
             <div>
               <h1 className="font-display text-xl text-white">Admin</h1>
               <p className="text-xs text-slate-400">
-                Simulation · informatics · GIS · weather · tiles · layers
+                Password-protected · simulation · GIS · weather · tiles · layers
               </p>
             </div>
           </div>

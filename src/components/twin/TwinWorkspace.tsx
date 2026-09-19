@@ -29,6 +29,7 @@ import {
   X,
   Wrench,
   Box,
+  Focus,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -64,6 +65,7 @@ import {
   DEFAULT_INFORMATICS,
   DEFAULT_SIMULATION,
 } from "@/lib/platform/types";
+import { requestZoomToLayer } from "@/lib/twin/zoom-to-layer";
 
 type DockPanel = "live" | "sim" | "tiles" | "layers" | "tools" | null;
 
@@ -746,17 +748,35 @@ export function TwinWorkspace() {
                         key={layer.configId}
                         className="flex items-start justify-between gap-3 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2.5"
                       >
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <p className="text-sm text-slate-100">{layer.label}</p>
                           <p className="truncate text-xs text-slate-500">
                             {layer.description}
                           </p>
                         </div>
-                        <Switch
-                          checked={layer.visible}
-                          onCheckedChange={() => toggleLayer(layer.configId)}
-                          aria-label={`Toggle ${layer.label}`}
-                        />
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            title={`Zoom to ${layer.label}`}
+                            aria-label={`Zoom to ${layer.label}`}
+                            onClick={() =>
+                              requestZoomToLayer({
+                                configId: layer.configId,
+                                key: layer.key,
+                                builtInKey: layer.builtInKey,
+                              })
+                            }
+                          >
+                            <Focus className="h-3.5 w-3.5" />
+                          </Button>
+                          <Switch
+                            checked={layer.visible}
+                            onCheckedChange={() => toggleLayer(layer.configId)}
+                            aria-label={`Toggle ${layer.label}`}
+                          />
+                        </div>
                       </div>
                     ))
                   ))}
