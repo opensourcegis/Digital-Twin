@@ -567,7 +567,7 @@ export function TwinWorkspace() {
       {twin.walkthroughMode === "walk" && (
         <div className="pointer-events-none absolute left-1/2 top-16 z-20 -translate-x-1/2 animate-in-fade">
           <div className="glass-panel rounded-full px-3 py-1.5 text-[11px] text-slate-200">
-            Walk · {sim.robotName} · WASD move · drag look
+            Walk · {sim.robotName} · WASD drive · chase cam
           </div>
         </div>
       )}
@@ -696,8 +696,9 @@ export function TwinWorkspace() {
                         </span>
                       </div>
                       <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-                        Game walk — WASD / arrows move the robot. Drag on the
-                        map to look. Stays on campus.
+                        Chase view — WASD drives the robot (W/S move, A/D turn).
+                        Drag to orbit, wheel to zoom. Watch ATLAS-01 move on
+                        campus.
                       </p>
                     </div>
                     <div className="flex gap-2">
