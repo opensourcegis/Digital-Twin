@@ -418,38 +418,39 @@ export function TwinWorkspace() {
     setRobot((r) => ({ ...r, playing: false }));
     setTool("navigate");
 
+    const isTileset =
+      layer.builtInKey === "tileset" || layer.category === "tiles-3d";
+
     const target: ZoomLayerTarget = {
       configId: layer.configId,
       key: layer.key,
-      builtInKey: layer.builtInKey,
+      // Always pass builtInKey tileset so zoomCameraToLayer hits the tileset path
+      builtInKey: isTileset ? "tileset" : layer.builtInKey,
     };
 
-    if (layer.builtInKey === "tileset" || layer.category === "tiles-3d") {
+    if (isTileset) {
       const url =
-        layer.dataSource?.trim() ||
         tilesetUrl.trim() ||
+        layer.dataSource?.trim() ||
         SAMPLE_TILESET_URL;
-      const alreadySameUrl =
-        Boolean(tilesetUrl.trim()) &&
-        tilesetUrl.trim() === url.trim();
-
       pendingTilesetZoom.current = target;
       setActiveScene("tiles");
+      setPanel("tiles");
 
-      if (alreadySameUrl) {
-        // Don't remount — just zoom (viewer waits up to ~30s if still loading)
+      if (tilesetUrl.trim() && tilesetUrl.trim() === url.trim()) {
+        // Already loaded via Tiles — zoom only (viewer waits if still settling)
         setStatus(`Focusing ${layer.label}…`);
         requestZoomToLayer(target);
         return;
       }
 
+      // Not loaded yet — load then zoom (same path as Tiles → Sample/Load)
       commitTilesetUrl(url);
       setStatus(
-        tilesetUrl.trim()
-          ? `Loading & focusing ${layer.label}…`
-          : "Loading sample tileset, then zooming…"
+        url.includes("pelican-public") || url.includes("agi-hq")
+          ? "Loading sample tileset, then zooming…"
+          : `Loading & focusing ${layer.label}…`
       );
-      // Fallback only — prefer twin-tileset-ready; give load time
       window.setTimeout(() => {
         if (pendingTilesetZoom.current === target) {
           pendingTilesetZoom.current = null;
@@ -1247,9 +1248,9 @@ export function TwinWorkspace() {
                   ) : (
                     <div className="space-y-2">
                       <p className="text-[11px] leading-relaxed text-slate-500">
-                        Toggle visibility or Focus to fly the camera. Focus on
-                        External tiles reloads the tileset (sample AGI HQ when
-                        none is set), then zooms.
+                        Toggle visibility or Focus to fly the camera. External
+                        3D Tiles Focus uses the URL from Tiles (or loads the AGI
+                        HQ sample) then zooms — same as Tiles → Sample.
                       </p>
                       {layerCatalog.layers.map((layer) => (
                         <div
@@ -1261,7 +1262,12 @@ export function TwinWorkspace() {
                               {layer.label}
                             </p>
                             <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
-                              {layer.description}
+                              {layer.builtInKey === "tileset" ||
+                              layer.category === "tiles-3d"
+                                ? tilesetUrl.trim()
+                                  ? `Loaded · ${tilesetUrl.replace(/^https?:\/\//, "").slice(0, 48)}${tilesetUrl.length > 56 ? "…" : ""}`
+                                  : "Not loaded — Focus or open Tiles → Sample / Load"
+                                : layer.description}
                             </p>
                           </div>
                           <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
