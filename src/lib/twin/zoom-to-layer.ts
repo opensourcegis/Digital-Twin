@@ -6,6 +6,98 @@ export type ZoomLayerTarget = {
   key: string;
 };
 
+const TILESET_READY_MS = 12_000;
+
+async function waitForTilesetReady(
+  Cesium: any,
+  tileset: any,
+  timeoutMs = TILESET_READY_MS
+): Promise<{ ok: boolean; reason?: string }> {
+  if (!tileset) {
+    return { ok: false, reason: "No tileset instance" };
+  }
+
+  // Prefer readyPromise (Cesium 1.104+)
+  if (tileset.readyPromise && typeof tileset.readyPromise.then === "function") {
+    try {
+      await Promise.race([
+        tileset.readyPromise,
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Tileset ready timed out")),
+            timeoutMs
+          )
+        ),
+      ]);
+    } catch (err) {
+      return {
+        ok: false,
+        reason: `Tileset not ready: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
+  // Ensure bounding sphere is usable (radius > 0)
+  const deadline = Date.now() + Math.min(timeoutMs, 8_000);
+  while (Date.now() < deadline) {
+    const bs = tileset.boundingSphere;
+    if (
+      bs &&
+      Number.isFinite(bs.radius) &&
+      bs.radius > 1 &&
+      bs.center &&
+      !Cesium.Cartesian3.equals(bs.center, Cesium.Cartesian3.ZERO)
+    ) {
+      return { ok: true };
+    }
+    await new Promise((r) => setTimeout(r, 80));
+  }
+
+  const bs = tileset.boundingSphere;
+  if (bs && Number.isFinite(bs.radius) && bs.radius > 0) {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    reason:
+      "Tileset bounding sphere not available yet — tiles may still be loading",
+  };
+}
+
+async function flyToTileset(
+  Cesium: any,
+  viewer: any,
+  tileset: any
+): Promise<void> {
+  tileset.show = true;
+  viewer.scene.requestRenderMode = false;
+  viewer.scene.requestRender();
+
+  const ready = await waitForTilesetReady(Cesium, tileset);
+  if (!ready.ok) {
+    throw new Error(ready.reason ?? "Tileset not ready");
+  }
+
+  const bs = tileset.boundingSphere;
+  if (bs && Number.isFinite(bs.radius) && bs.radius > 0) {
+    const range = Math.max(bs.radius * 2.6, 120);
+    await viewer.camera.flyToBoundingSphere(bs, {
+      duration: 1.35,
+      offset: new Cesium.HeadingPitchRange(
+        0,
+        Cesium.Math.toRadians(-42),
+        range
+      ),
+    });
+    viewer.scene.requestRender();
+    return;
+  }
+
+  // Last resort: viewer.zoomTo
+  await viewer.zoomTo(tileset);
+  viewer.scene.requestRender();
+}
+
 export async function zoomCameraToLayer(
   Cesium: any,
   viewer: any,
@@ -24,17 +116,19 @@ export async function zoomCameraToLayer(
     if (!opts.tileset) {
       return {
         ok: false,
-        reason: "Load a tileset first (Sample or paste a URL in Tiles)",
+        reason:
+          "External tileset not loaded yet. Use Focus again after Sample load, or paste a tileset URL in Tiles.",
       };
     }
     try {
-      opts.tileset.show = true;
-      await viewer.zoomTo(opts.tileset);
+      await flyToTileset(Cesium, viewer, opts.tileset);
       return { ok: true };
     } catch (err) {
       return {
         ok: false,
-        reason: `Tileset zoom failed: ${String(err)}`,
+        reason: `Cannot zoom into external layer: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
       };
     }
   }
@@ -127,4 +221,33 @@ export function requestZoomToLayer(target: ZoomLayerTarget) {
   window.dispatchEvent(
     new CustomEvent("twin-zoom-layer", { detail: target })
   );
+}
+
+/** Fired by CesiumViewer when an external tileset finishes loading. */
+export function notifyTilesetReady(url: string) {
+  window.dispatchEvent(
+    new CustomEvent("twin-tileset-ready", { detail: { url } })
+  );
+}
+
+export type TwinErrorEvent = {
+  id: string;
+  message: string;
+  detail?: string;
+  source: string;
+};
+
+export function reportTwinError(error: Omit<TwinErrorEvent, "id"> & { id?: string }) {
+  const payload: TwinErrorEvent = {
+    id:
+      error.id ??
+      `err-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    message: error.message,
+    detail: error.detail,
+    source: error.source,
+  };
+  window.dispatchEvent(
+    new CustomEvent("twin-error", { detail: payload })
+  );
+  return payload;
 }
