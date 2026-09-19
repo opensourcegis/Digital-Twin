@@ -175,7 +175,7 @@ export function positionsFromRing(
  */
 export function setClippingPolygons(
   Cesium: CesiumNS,
-  targets: { tileset?: any | null; globe?: any | null },
+  targets: { tileset?: any | null; globe?: any | null; scene?: any | null },
   opts: {
     outer: ClipRing;
     holes?: ClipRing[];
@@ -187,6 +187,20 @@ export function setClippingPolygons(
   if (!Cesium.ClippingPolygon || !Cesium.ClippingPolygonCollection) {
     console.warn("ClippingPolygon APIs missing — need CesiumJS ≥ 1.145");
     return null;
+  }
+  // Clipping polygons require WebGL2 — skip when unsupported (avoids BV crashes)
+  try {
+    const scene = targets.scene;
+    if (
+      scene &&
+      typeof Cesium.ClippingPolygonCollection.isSupported === "function" &&
+      !Cesium.ClippingPolygonCollection.isSupported(scene)
+    ) {
+      console.warn("ClippingPolygonCollection not supported in this WebGL context");
+      return null;
+    }
+  } catch {
+    /* proceed — isSupported optional */
   }
 
   // Drop prior collections so owners release GPU/BV state cleanly

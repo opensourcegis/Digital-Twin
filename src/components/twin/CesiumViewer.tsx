@@ -81,6 +81,7 @@ import type { SceneWeather } from "@/lib/weather/types";
 import {
   applyTimeOfDay,
   applyWeatherToScene,
+  removeWeatherClouds,
   weatherWindFactor,
 } from "@/lib/weather/apply-weather";
 import type { PlatformSettings } from "@/lib/platform/types";
@@ -549,8 +550,17 @@ export function CesiumViewer({
 
       viewer.scene.globe.depthTestAgainstTerrain = false;
       viewer.scene.requestRenderMode = true;
-      // Keep rendering after recoverable Cesium errors (bad tile / clip BV)
+      // Keep rendering after recoverable Cesium errors (bad tile / clip BV / clouds)
       viewer.scene.rethrowRenderErrors = false;
+      // CesiumWidget's default renderError handler stops the RAF loop + shows a modal.
+      // We recover ourselves and surface the fault in the twin Error Dashboard instead.
+      try {
+        if (viewer.cesiumWidget) {
+          viewer.cesiumWidget.showRenderLoopErrors = false;
+        }
+      } catch {
+        /* ignore */
+      }
       try {
         viewer.scene.renderError.addEventListener(
           (_scene: unknown, error: unknown) => {
@@ -562,8 +572,22 @@ export function CesiumViewer({
               message: "Rendering error — recovering scene",
               detail: msg,
             });
-            // Common crash: clipping / tileset BV undefined — clear clip + drop secondary tileset
             try {
+              // Resume CesiumWidget RAF (default handler may have flipped this off)
+              if (viewer.cesiumWidget) {
+                viewer.cesiumWidget.showRenderLoopErrors = false;
+                viewer.cesiumWidget.useDefaultRenderLoop = true;
+                const panel =
+                  viewer.cesiumWidget._element?.querySelector?.(
+                    ".cesium-widget-errorPanel"
+                  ) ??
+                  viewer.container?.querySelector?.(
+                    ".cesium-widget-errorPanel"
+                  );
+                panel?.remove?.();
+              }
+              // CloudCollection DrawCommands lack boundingVolume → distanceSquaredTo crash
+              removeWeatherClouds(viewer);
               clearClippingPolygons({
                 tileset: tilesetRef.current ?? vectorTilesetRef.current,
                 globe: viewer.scene.globe,
@@ -1137,13 +1161,18 @@ export function CesiumViewer({
             {
               tileset: tilesetRef.current,
               globe: viewer.scene.globe,
+              scene: viewer.scene,
             },
             clipOpts
           );
           if (vectorTilesetRef.current) {
             setClippingPolygons(
               Cesium,
-              { tileset: vectorTilesetRef.current, globe: null },
+              {
+                tileset: vectorTilesetRef.current,
+                globe: null,
+                scene: viewer.scene,
+              },
               clipOpts
             );
           }

@@ -112,65 +112,37 @@ function findTaggedPrimitive(scene: any, tag: string) {
   return null;
 }
 
-function ensureCloudCollection(Cesium: CesiumNS, viewer: any) {
-  const scene = viewer.scene;
-  let clouds = findTaggedPrimitive(scene, CLOUD_TAG);
-  if (!clouds && Cesium.CloudCollection) {
-    clouds = new Cesium.CloudCollection();
-    clouds[CLOUD_TAG] = true;
-    scene.primitives.add(clouds);
+/**
+ * Remove any twin weather CloudCollection primitives.
+ * CesiumJS CloudCollection emits TRANSLUCENT DrawCommands without boundingVolume,
+ * which crashes translucent sort (`distanceSquaredTo` on undefined) and stops rendering.
+ */
+export function removeWeatherClouds(viewer: any) {
+  const scene = viewer?.scene;
+  if (!scene?.primitives) return;
+  try {
+    for (let i = scene.primitives.length - 1; i >= 0; i--) {
+      const p = scene.primitives.get(i);
+      if (p?.[CLOUD_TAG] || p?.constructor?.name === "CloudCollection") {
+        scene.primitives.remove(p);
+      }
+    }
+  } catch {
+    /* ignore */
   }
-  return clouds ?? null;
 }
 
-/** Scatter soft volumetric clouds over the campus from cloud cover %. */
+/**
+ * Cloud cover is represented via fog / skyAtmosphere / sun intensity only.
+ * Volumetric CloudCollection is intentionally unused — see removeWeatherClouds.
+ */
 function syncWeatherClouds(
-  Cesium: CesiumNS,
+  _Cesium: CesiumNS,
   viewer: any,
-  weather: SceneWeather | null,
-  timeOfDay: TimeOfDay
+  _weather: SceneWeather | null,
+  _timeOfDay: TimeOfDay
 ) {
-  const collection = ensureCloudCollection(Cesium, viewer);
-  if (!collection) return;
-
-  collection.removeAll();
-  if (!weather || timeOfDay !== "day") return;
-
-  const cover = Math.max(0, Math.min(100, weather.cloudCoverPct ?? 0));
-  if (cover < 12) return;
-
-  const lon = weather.longitude ?? -122.1339;
-  const lat = weather.latitude ?? 37.42205;
-  const count = Math.min(18, Math.max(3, Math.round(cover / 8)));
-  const brightness = Math.max(0.45, 1 - cover / 180);
-  const windPush = weatherWindFactor(weather) * 0.002;
-  const from = ((weather.windDirectionDeg ?? 270) * Math.PI) / 180;
-  // Displace cloud field downwind
-  const dLon = Math.sin(from + Math.PI) * windPush;
-  const dLat = Math.cos(from + Math.PI) * windPush;
-
-  for (let i = 0; i < count; i++) {
-    const ang = (i / count) * Math.PI * 2 + cover * 0.01;
-    const radius = 0.004 + (i % 5) * 0.0015;
-    const clat = lat + Math.cos(ang) * radius + dLat;
-    const clon = lon + Math.sin(ang) * radius * 1.2 + dLon;
-    const height = 900 + (i % 4) * 280 + cover * 4;
-    try {
-      collection.add({
-        position: Cesium.Cartesian3.fromDegrees(clon, clat, height),
-        scale: new Cesium.Cartesian2(2200 + cover * 18, 700 + cover * 6),
-        maximumSize: new Cesium.Cartesian3(
-          40 + cover * 0.25,
-          12 + cover * 0.08,
-          18 + cover * 0.1
-        ),
-        slice: 0.25 + (i % 3) * 0.12,
-        brightness,
-      });
-    } catch {
-      /* CloudCollection unsupported */
-    }
-  }
+  removeWeatherClouds(viewer);
 }
 
 function makeWindParticleCanvas(): HTMLCanvasElement {
