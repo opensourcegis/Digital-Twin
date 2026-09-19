@@ -25,11 +25,19 @@ async function readFile(): Promise<WeatherSettings> {
   try {
     const raw = await fs.readFile(DATA_PATH, "utf8");
     const parsed = JSON.parse(raw) as Partial<WeatherSettings>;
+    let apiUrl =
+      typeof parsed.apiUrl === "string" && parsed.apiUrl.trim()
+        ? parsed.apiUrl.trim()
+        : DEFAULT_WEATHER_API_URL;
+    // Upgrade legacy Open-Meteo URLs that lack cloud cover / wrong site
+    if (
+      apiUrl.includes("open-meteo.com") &&
+      (!apiUrl.includes("cloud_cover") || apiUrl.includes("18.1795"))
+    ) {
+      apiUrl = DEFAULT_WEATHER_API_URL;
+    }
     return {
-      apiUrl:
-        typeof parsed.apiUrl === "string" && parsed.apiUrl.trim()
-          ? parsed.apiUrl.trim()
-          : DEFAULT_WEATHER_API_URL,
+      apiUrl,
       followDayNight:
         typeof parsed.followDayNight === "boolean"
           ? parsed.followDayNight

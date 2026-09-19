@@ -12,6 +12,8 @@ type OpenMeteoPayload = {
     visibility?: (number | null)[];
     wind_speed_10m?: (number | null)[];
     wind_direction_10m?: (number | null)[];
+    cloud_cover?: (number | null)[];
+    weather_code?: (number | null)[];
   };
 };
 
@@ -54,6 +56,10 @@ export function normalizeOpenMeteo(
     num(current.wind_speed_10m) ?? num(hourly.wind_speed_10m?.[hi]);
   const windDirectionDeg =
     num(current.wind_direction_10m) ?? num(hourly.wind_direction_10m?.[hi]);
+  const cloudCoverPct =
+    num(current.cloud_cover) ?? num(hourly.cloud_cover?.[hi]);
+  const weatherCode =
+    num(current.weather_code) ?? num(hourly.weather_code?.[hi]);
 
   let isDay: boolean | null = null;
   if (typeof current.is_day === "number") {
@@ -67,6 +73,8 @@ export function normalizeOpenMeteo(
     visibilityM,
     windSpeedMps,
     windDirectionDeg,
+    cloudCoverPct,
+    weatherCode,
     isDay,
     latitude: num(data.latitude),
     longitude: num(data.longitude),

@@ -113,6 +113,14 @@ export function OperationsPanel({
                     : ""}
                 </p>
               </div>
+              <div>
+                <p className="text-slate-500">Clouds</p>
+                <p className="text-slate-200">
+                  {weather?.cloudCoverPct != null
+                    ? `${Math.round(weather.cloudCoverPct)}%`
+                    : "—"}
+                </p>
+              </div>
             </div>
           )}
         </div>

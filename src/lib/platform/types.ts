@@ -114,7 +114,7 @@ export interface PlatformSettings {
 
 export const DEFAULT_SIMULATION: SimulationSettings = {
   robotName: "ATLAS-01",
-  baseSpeedMps: 2.8,
+  baseSpeedMps: 3.6,
   turnRateRad: 1.1,
   goalTimeoutSec: 28,
   alertSlowdownFactor: 0.5,
