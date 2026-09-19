@@ -85,7 +85,7 @@ export interface WalkAttachOptions {
 }
 
 /**
- * Sample ground/tileset height at lon/lat. Falls back to previous height.
+ * Sample ground/tileset height. Never launches upward more than a small step.
  */
 export function sampleSurfaceHeight(
   Cesium: CesiumNS,
@@ -95,39 +95,45 @@ export function sampleSurfaceHeight(
   fallbackH: number,
   exclude: any[] = []
 ): number {
+  let h = fallbackH;
   try {
-    const carto = Cesium.Cartographic.fromDegrees(lon, lat);
-    if (viewer.scene.sampleHeightSupported) {
-      const h = viewer.scene.sampleHeight(carto, exclude);
-      if (typeof h === "number" && Number.isFinite(h)) {
-        // Ignore absurd jumps (sky / missed picks)
-        if (Math.abs(h - fallbackH) < 200 || fallbackH < 1) {
-          return h + 0.35;
-        }
-      }
-    }
-    const cartesian = Cesium.Cartesian3.fromDegrees(lon, lat, fallbackH + 80);
     if (viewer.scene.clampToHeightSupported) {
-      const clamped = viewer.scene.clampToHeight(cartesian, exclude);
+      // Probe from slightly above current height only — prevents sky launches
+      const probe = Cesium.Cartesian3.fromDegrees(
+        lon,
+        lat,
+        fallbackH + 8
+      );
+      const clamped = viewer.scene.clampToHeight(probe, exclude);
       if (clamped) {
         const c = Cesium.Cartographic.fromCartesian(clamped);
-        if (c && Number.isFinite(c.height) && Math.abs(c.height - fallbackH) < 200) {
-          return c.height + 0.35;
-        }
+        if (c && Number.isFinite(c.height)) h = c.height + 0.4;
+      }
+    } else if (viewer.scene.sampleHeightSupported) {
+      const carto = Cesium.Cartographic.fromDegrees(lon, lat);
+      const sampled = viewer.scene.sampleHeight(carto, exclude);
+      if (typeof sampled === "number" && Number.isFinite(sampled)) {
+        h = sampled + 0.4;
+      }
+    } else {
+      const carto = Cesium.Cartographic.fromDegrees(lon, lat);
+      const globeH = viewer.scene.globe?.getHeight?.(carto);
+      if (typeof globeH === "number" && Number.isFinite(globeH)) {
+        h = globeH + 0.4;
       }
     }
-    const globeH = viewer.scene.globe?.getHeight?.(carto);
-    if (typeof globeH === "number" && Number.isFinite(globeH)) {
-      return globeH + 0.35;
-    }
   } catch {
-    /* keep fallback */
+    return Math.max(0.12, fallbackH);
   }
-  return Math.max(0.12, fallbackH);
+  // Hard cap per-sample change so bad picks can't fling the robot skyward
+  const maxStep = 3;
+  if (h > fallbackH + maxStep) h = fallbackH + maxStep;
+  if (h < fallbackH - maxStep) h = fallbackH - maxStep;
+  return Math.max(0.05, h);
 }
 
 /**
- * Third-person chase camera behind/above the robot.
+ * Third-person chase camera — locked lookAt so it never eases through the sky.
  */
 export function applyWalkCamera(
   Cesium: CesiumNS,
@@ -149,8 +155,12 @@ export function applyWalkCamera(
   const robotPos = Cesium.Cartesian3.fromDegrees(
     pose.lon,
     pose.lat,
-    Math.max(0.15, pose.height)
+    Math.max(0.05, pose.height)
   );
+
+  // Cancel any in-flight zoom/fly that would arc through space
+  viewer.camera.cancelFlight?.();
+
   const enu = Cesium.Transforms.eastNorthUpToFixedFrame(robotPos);
   const local = new Cesium.Cartesian3(
     -Math.sin(viewHeading) * backM,
@@ -163,6 +173,7 @@ export function applyWalkCamera(
     new Cesium.Cartesian3()
   );
 
+  // Instant set — no flyTo
   viewer.camera.setView({
     destination: camPos,
     orientation: {
@@ -333,20 +344,6 @@ export function attachKeyboardWalk(
         pose = { ...pose };
       }
       moved = true;
-    } else if (surface === "tileset") {
-      // Keep feet on mesh even when idle (tiles streaming in)
-      const height = sampleSurfaceHeight(
-        Cesium,
-        viewer,
-        pose.lon,
-        pose.lat,
-        pose.height,
-        getExclude()
-      );
-      if (Math.abs(height - pose.height) > 0.05) {
-        pose = { ...pose, height };
-        moved = true;
-      }
     }
 
     if (moved) {
