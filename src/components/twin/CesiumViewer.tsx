@@ -66,6 +66,8 @@ import {
 import type { PlatformSettings } from "@/lib/platform/types";
 import { DEFAULT_GIS, DEFAULT_SIMULATION } from "@/lib/platform/types";
 import {
+  notifyTilesetReady,
+  reportTwinError,
   zoomCameraToLayer,
   type ZoomLayerTarget,
 } from "@/lib/twin/zoom-to-layer";
@@ -988,7 +990,13 @@ export function CesiumViewer({
 
     boot().catch((err) => {
       console.error(err);
-      onStatusRef.current(`Viewer error: ${String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      onStatusRef.current(`Viewer error: ${msg}`);
+      reportTwinError({
+        source: "Viewer",
+        message: "Cesium viewer failed to start",
+        detail: msg,
+      });
     });
 
     return () => {
@@ -1031,26 +1039,63 @@ export function CesiumViewer({
     const onZoomLayer = (e: Event) => {
       const Cesium = cesiumRef.current;
       const viewer = viewerRef.current;
-      if (!Cesium || !viewer || !readyRef.current) return;
+      if (!Cesium || !viewer || !readyRef.current) {
+        reportTwinError({
+          source: "Zoom",
+          message: "Viewer not ready — wait for the twin to finish loading",
+        });
+        return;
+      }
       const detail = (e as CustomEvent<ZoomLayerTarget>).detail;
       if (!detail?.configId) return;
       // Leave chase cam so zoom-to sticks (esp. external tilesets)
       pauseWalkChase(12_000);
       markUserCameraControl(viewer);
-      void zoomCameraToLayer(Cesium, viewer, detail, {
-        layerEntities: layerEntities.current,
-        customLayerEntities: customLayerEntities.current,
-        tileset: tilesetRef.current,
-        poles: poleLightCaches.current.poles,
-        robotRoot: robotHandle.current?.root ?? null,
-      }).then((result) => {
-        onStatusRef.current(
-          result.ok
-            ? "Zoomed to layer"
-            : result.reason ?? "No geometry to zoom for that layer"
-        );
+
+      const runZoom = async (attempt: number): Promise<void> => {
+        // External tileset may still be loading after Focus kicked off a Sample URL
+        if (
+          detail.builtInKey === "tileset" &&
+          !tilesetRef.current &&
+          attempt < 25
+        ) {
+          await new Promise((r) => setTimeout(r, 200));
+          return runZoom(attempt + 1);
+        }
+
+        const result = await zoomCameraToLayer(Cesium, viewer, detail, {
+          layerEntities: layerEntities.current,
+          customLayerEntities: customLayerEntities.current,
+          tileset: tilesetRef.current,
+          poles: poleLightCaches.current.poles,
+          robotRoot: robotHandle.current?.root ?? null,
+        });
+
+        if (result.ok) {
+          onStatusRef.current(
+            detail.builtInKey === "tileset"
+              ? "Zoomed into external tileset"
+              : "Zoomed to layer"
+          );
+        } else {
+          const reason =
+            result.reason ?? "No geometry to zoom for that layer";
+          onStatusRef.current(reason);
+          reportTwinError({
+            source:
+              detail.builtInKey === "tileset"
+                ? "External layer zoom"
+                : "Layer zoom",
+            message: reason,
+            detail: detail.builtInKey
+              ? `layer=${detail.builtInKey}`
+              : `key=${detail.key}`,
+          });
+        }
         viewer.scene.requestRender();
-      });
+      };
+
+      void runZoom(0);
     };
     window.addEventListener("twin-zoom-layer", onZoomLayer);
     return () => window.removeEventListener("twin-zoom-layer", onZoomLayer);
@@ -1161,6 +1206,11 @@ export function CesiumViewer({
             needsRender = true;
           } catch (err) {
             console.warn("Custom layer load failed", layer.configId, err);
+            reportTwinError({
+              source: "Custom layer",
+              message: `Failed to load layer “${layer.label ?? layer.configId}”`,
+              detail: err instanceof Error ? err.message : String(err),
+            });
           }
         } else if (!layer.enabled) {
           for (const e of existing) viewer.entities.remove(e);
@@ -1210,23 +1260,60 @@ export function CesiumViewer({
       }
       try {
         if (tilesetUrl.trim()) {
+          const url = tilesetUrl.trim();
           const isSample =
-            tilesetUrl.includes("pelican-public") ||
-            tilesetUrl.includes("agi-hq") ||
-            tilesetUrl.includes("sandcastle");
+            url.includes("pelican-public") ||
+            url.includes("agi-hq") ||
+            url.includes("sandcastle");
           onStatusRef.current(
             isSample ? "Loading sample 3D Tiles (AGI HQ)…" : "Loading 3D Tiles…"
           );
-          const tileset = await Cesium.Cesium3DTileset.fromUrl(tilesetUrl.trim());
+          const tileset = await Cesium.Cesium3DTileset.fromUrl(url);
           if (cancelled) return;
           viewer.scene.primitives.add(tileset);
           tilesetRef.current = tileset;
           pauseWalkChase(12_000);
           markUserCameraControl(viewer);
-          await viewer.zoomTo(tileset);
-          onStatusRef.current(
-            isSample ? "Sample tileset loaded — zoomed to AGI HQ" : "3D Tiles loaded"
+
+          const zoomResult = await zoomCameraToLayer(
+            Cesium,
+            viewer,
+            {
+              configId: "tileset",
+              key: "tileset",
+              builtInKey: "tileset",
+            },
+            {
+              layerEntities: layerEntities.current,
+              customLayerEntities: customLayerEntities.current,
+              tileset,
+              poles: poleLightCaches.current.poles,
+              robotRoot: null,
+            }
           );
+
+          if (cancelled) return;
+          if (zoomResult.ok) {
+            onStatusRef.current(
+              isSample
+                ? "Sample tileset loaded — zoomed to AGI HQ"
+                : "3D Tiles loaded — zoomed in"
+            );
+          } else {
+            onStatusRef.current(
+              isSample
+                ? "Sample tileset loaded (zoom pending)"
+                : "3D Tiles loaded (zoom pending)"
+            );
+            reportTwinError({
+              source: "Tileset zoom",
+              message:
+                zoomResult.reason ??
+                "Tileset loaded but camera could not zoom in",
+              detail: url,
+            });
+          }
+          notifyTilesetReady(url);
         } else if (config.cesiumIonAssetId && config.cesiumIonToken) {
           onStatusRef.current("Loading ion asset…");
           const tileset = await Cesium.Cesium3DTileset.fromIonAssetId(
@@ -1235,15 +1322,52 @@ export function CesiumViewer({
           if (cancelled) return;
           viewer.scene.primitives.add(tileset);
           tilesetRef.current = tileset;
-          await viewer.zoomTo(tileset);
-          onStatusRef.current(`Ion asset ${config.cesiumIonAssetId} loaded`);
-        } else if (config.cesiumIonAssetId && !config.cesiumIonToken) {
-          onStatusRef.current(
-            "Ion asset configured but CESIUM_ION_TOKEN is missing — set the token or use Sandcastle/Campus presets"
+          pauseWalkChase(12_000);
+          markUserCameraControl(viewer);
+          const zoomResult = await zoomCameraToLayer(
+            Cesium,
+            viewer,
+            {
+              configId: "tileset",
+              key: "tileset",
+              builtInKey: "tileset",
+            },
+            {
+              layerEntities: layerEntities.current,
+              customLayerEntities: customLayerEntities.current,
+              tileset,
+              poles: poleLightCaches.current.poles,
+              robotRoot: null,
+            }
           );
+          if (!zoomResult.ok) {
+            reportTwinError({
+              source: "Ion tileset zoom",
+              message:
+                zoomResult.reason ??
+                `Ion asset ${config.cesiumIonAssetId} loaded but zoom failed`,
+            });
+          }
+          onStatusRef.current(`Ion asset ${config.cesiumIonAssetId} loaded`);
+          notifyTilesetReady(`ion:${config.cesiumIonAssetId}`);
+        } else if (config.cesiumIonAssetId && !config.cesiumIonToken) {
+          const msg =
+            "Ion asset configured but CESIUM_ION_TOKEN is missing — set the token or use Sample/Campus";
+          onStatusRef.current(msg);
+          reportTwinError({
+            source: "Ion tileset",
+            message: msg,
+            detail: `assetId=${config.cesiumIonAssetId}`,
+          });
         }
       } catch (err) {
-        onStatusRef.current(`Tileset error: ${String(err)}`);
+        const msg = err instanceof Error ? err.message : String(err);
+        onStatusRef.current(`Tileset error: ${msg}`);
+        reportTwinError({
+          source: "Tileset load",
+          message: "Failed to load external 3D Tiles layer",
+          detail: msg,
+        });
       }
     }
     loadTiles();
