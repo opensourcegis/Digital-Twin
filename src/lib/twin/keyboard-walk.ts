@@ -1,3 +1,5 @@
+import { snapToCampusRoads } from "@/lib/twin/campus-roads";
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type CesiumNS = any;
 
@@ -8,6 +10,17 @@ const WALK_BOUNDS = {
   minLat: 37.4212,
   maxLat: 37.4236,
 };
+
+let chaseHoldUntil = 0;
+
+/** Pause chase-camera follow so zoom-to-layer / orbit flies can complete. */
+export function pauseWalkChase(ms = 10_000) {
+  chaseHoldUntil = performance.now() + ms;
+}
+
+export function isWalkChasePaused() {
+  return performance.now() < chaseHoldUntil;
+}
 
 const MOVE_SPEED_M_S = 8;
 const TURN_RATE_RAD = 1.8;
@@ -243,10 +256,21 @@ export function attachKeyboardWalk(
       }
       if (east !== 0 || north !== 0) {
         const { dLon, dLat } = metersToLonLat(east, north, pose.lat);
+        const rawLon = clamp(
+          pose.lon + dLon,
+          WALK_BOUNDS.minLon,
+          WALK_BOUNDS.maxLon
+        );
+        const rawLat = clamp(
+          pose.lat + dLat,
+          WALK_BOUNDS.minLat,
+          WALK_BOUNDS.maxLat
+        );
+        const snapped = snapToCampusRoads(rawLon, rawLat);
         pose = {
           ...pose,
-          lon: clamp(pose.lon + dLon, WALK_BOUNDS.minLon, WALK_BOUNDS.maxLon),
-          lat: clamp(pose.lat + dLat, WALK_BOUNDS.minLat, WALK_BOUNDS.maxLat),
+          lon: snapped.lon,
+          lat: snapped.lat,
           height: Math.max(0.12, pose.height),
         };
       } else {
@@ -260,7 +284,9 @@ export function attachKeyboardWalk(
     }
 
     // Chase camera follows so the robot body stays in frame
-    applyWalkCamera(Cesium, viewer, driver.getPose(), camOpts());
+    if (!isWalkChasePaused()) {
+      applyWalkCamera(Cesium, viewer, driver.getPose(), camOpts());
+    }
     viewer.scene.requestRenderMode = false;
 
     raf = requestAnimationFrame(tick);

@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type CesiumNS = any;
 
+import { roadSamplePoints, snapToCampusRoads } from "@/lib/twin/campus-roads";
+
 export interface RobotPose {
   lon: number;
   lat: number;
@@ -23,9 +25,11 @@ export const ROBOT_BOUNDS: WanderBounds = {
   maxLat: 37.4236,
 };
 
+const snappedSpawn = snapToCampusRoads(-122.1339, 37.42205);
+
 export const ROBOT_SPAWN: RobotPose = {
-  lon: -122.1339,
-  lat: 37.42205,
+  lon: snappedSpawn.lon,
+  lat: snappedSpawn.lat,
   height: 0.15,
   heading: (35 * Math.PI) / 180,
 };
@@ -49,8 +53,7 @@ export interface WanderOptions {
 }
 
 /**
- * Autonomous roam — steers toward a soft random goal, no fixed route.
- * Goals are re-picked when reached or after a timeout.
+ * Autonomous roam along campus roads only (never through building footprints).
  */
 export function createWanderController(options: WanderOptions | number = {}) {
   const opts: WanderOptions =
@@ -58,6 +61,7 @@ export function createWanderController(options: WanderOptions | number = {}) {
   const bounds = opts.bounds ?? ROBOT_BOUNDS;
   const turnRate = opts.turnRateRad ?? 1.1;
   const goalTimeout = opts.goalTimeoutSec ?? 28;
+  const roadPts = roadSamplePoints(28);
   let goal: { lon: number; lat: number } | null = null;
   let goalAge = 0;
   let rng = opts.seed ?? 1;
@@ -68,9 +72,10 @@ export function createWanderController(options: WanderOptions | number = {}) {
   };
 
   const pickGoal = () => {
+    const p = roadPts[Math.floor(nextRand() * roadPts.length)] ?? roadPts[0];
     goal = {
-      lon: bounds.minLon + nextRand() * (bounds.maxLon - bounds.minLon),
-      lat: bounds.minLat + nextRand() * (bounds.maxLat - bounds.minLat),
+      lon: clamp(p.lon, bounds.minLon, bounds.maxLon),
+      lat: clamp(p.lat, bounds.minLat, bounds.maxLat),
     };
     goalAge = 0;
   };
@@ -97,7 +102,7 @@ export function createWanderController(options: WanderOptions | number = {}) {
         dLat * 110540
       );
 
-      if (distM < 4 || goalAge > goalTimeout) pickGoal();
+      if (distM < 3 || goalAge > goalTimeout) pickGoal();
 
       const move = speedMps * dt;
       const { dLon: e, dLat: n } = metersToLonLat(
@@ -106,9 +111,14 @@ export function createWanderController(options: WanderOptions | number = {}) {
         pose.lat
       );
 
-      return {
+      const raw = {
         lon: clamp(pose.lon + e, bounds.minLon, bounds.maxLon),
         lat: clamp(pose.lat + n, bounds.minLat, bounds.maxLat),
+      };
+      const snapped = snapToCampusRoads(raw.lon, raw.lat);
+      return {
+        lon: snapped.lon,
+        lat: snapped.lat,
         height: pose.height,
         heading,
       };
@@ -129,9 +139,10 @@ export function spawnFromSettings(spawn: {
   height: number;
   headingDeg: number;
 }): RobotPose {
+  const snapped = snapToCampusRoads(spawn.lon, spawn.lat);
   return {
-    lon: spawn.lon,
-    lat: spawn.lat,
+    lon: snapped.lon,
+    lat: snapped.lat,
     height: spawn.height,
     heading: (spawn.headingDeg * Math.PI) / 180,
   };

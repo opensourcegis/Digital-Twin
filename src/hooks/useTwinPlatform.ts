@@ -32,7 +32,7 @@ export function useTwinPlatform(robotProgress: number) {
     connected: false,
     isLive: true,
     simulationTime: null,
-    walkthroughMode: "walk",
+    walkthroughMode: "off",
     selectedAssetGuid: null,
   });
   const progressRef = useRef(robotProgress);

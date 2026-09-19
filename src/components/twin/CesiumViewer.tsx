@@ -23,6 +23,7 @@ import {
 import {
   attachKeyboardWalk,
   enterWalkCamera,
+  pauseWalkChase,
 } from "@/lib/twin/keyboard-walk";
 import {
   attachCameraControls,
@@ -958,18 +959,23 @@ export function CesiumViewer({
       if (!Cesium || !viewer || !readyRef.current) return;
       const detail = (e as CustomEvent<ZoomLayerTarget>).detail;
       if (!detail?.configId) return;
+      // Leave chase cam so zoom-to sticks (esp. external tilesets)
+      pauseWalkChase(12_000);
       markUserCameraControl(viewer);
-      const ok = zoomCameraToLayer(Cesium, viewer, detail, {
+      void zoomCameraToLayer(Cesium, viewer, detail, {
         layerEntities: layerEntities.current,
         customLayerEntities: customLayerEntities.current,
         tileset: tilesetRef.current,
         poles: poleLightCaches.current.poles,
         robotRoot: robotHandle.current?.root ?? null,
+      }).then((result) => {
+        onStatusRef.current(
+          result.ok
+            ? "Zoomed to layer"
+            : result.reason ?? "No geometry to zoom for that layer"
+        );
+        viewer.scene.requestRender();
       });
-      onStatusRef.current(
-        ok ? `Zoomed to layer` : "No geometry to zoom for that layer"
-      );
-      viewer.scene.requestRender();
     };
     window.addEventListener("twin-zoom-layer", onZoomLayer);
     return () => window.removeEventListener("twin-zoom-layer", onZoomLayer);
@@ -1129,20 +1135,22 @@ export function CesiumViewer({
       }
       try {
         if (tilesetUrl.trim()) {
+          const isSample =
+            tilesetUrl.includes("pelican-public") ||
+            tilesetUrl.includes("agi-hq") ||
+            tilesetUrl.includes("sandcastle");
           onStatusRef.current(
-            tilesetUrl.includes("sandcastle-tileset")
-              ? "Loading Sandcastle sample tiles…"
-              : "Loading 3D Tiles…"
+            isSample ? "Loading sample 3D Tiles (AGI HQ)…" : "Loading 3D Tiles…"
           );
           const tileset = await Cesium.Cesium3DTileset.fromUrl(tilesetUrl.trim());
           if (cancelled) return;
           viewer.scene.primitives.add(tileset);
           tilesetRef.current = tileset;
+          pauseWalkChase(12_000);
+          markUserCameraControl(viewer);
           await viewer.zoomTo(tileset);
           onStatusRef.current(
-            tilesetUrl.includes("sandcastle-tileset")
-              ? "Sandcastle sample tiles loaded"
-              : "3D Tiles loaded"
+            isSample ? "Sample tileset loaded — zoomed to AGI HQ" : "3D Tiles loaded"
           );
         } else if (config.cesiumIonAssetId && config.cesiumIonToken) {
           onStatusRef.current("Loading ion asset…");

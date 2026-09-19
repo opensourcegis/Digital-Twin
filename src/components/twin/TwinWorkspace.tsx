@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 import {
   SANDCASTLE_PRESET_NOTE,
   SANDCASTLE_TEST_TILESET_URL,
+  SAMPLE_TILESET_URL,
 } from "@/lib/sandcastle-preset";
 import { useTwinPlatform } from "@/hooks/useTwinPlatform";
 import { useLayerCatalog } from "@/hooks/useLayerCatalog";
@@ -115,7 +116,7 @@ export function TwinWorkspace() {
   const [tilesetUrl, setTilesetUrl] = useState("");
   const [activeScene, setActiveScene] = useState<"demo" | "tiles">("demo");
   const [robot, setRobot] = useState<RobotState>({
-    playing: true,
+    playing: false,
     progress: 0,
     speed: 1,
   });
@@ -246,11 +247,51 @@ export function TwinWorkspace() {
   };
 
   const loadSandcastleTest = () => {
-    const url = config.sandcastleTilesetUrl || SANDCASTLE_TEST_TILESET_URL;
+    const url =
+      config.sandcastleTilesetUrl ||
+      SAMPLE_TILESET_URL ||
+      SANDCASTLE_TEST_TILESET_URL;
     setActiveScene("tiles");
     setPanel("tiles");
     setTilesetUrl(url);
-    setStatus("Loading sample tileset…");
+    twin.setWalkthroughMode("off");
+    setRobot((r) => ({ ...r, playing: false }));
+    setStatus("Loading sample tileset (AGI HQ)…");
+  };
+
+  const focusLayer = (layer: {
+    configId: string;
+    key: string;
+    builtInKey?: string | null;
+    label: string;
+  }) => {
+    // Orbit so chase cam doesn't fight the zoom fly-to
+    twin.setWalkthroughMode("off");
+    setRobot((r) => ({ ...r, playing: false }));
+
+    if (layer.builtInKey === "tileset") {
+      const url = tilesetUrl.trim() || SAMPLE_TILESET_URL;
+      if (!tilesetUrl.trim()) {
+        setTilesetUrl(url);
+        setActiveScene("tiles");
+        setStatus("Loading sample tileset, then zooming…");
+        window.setTimeout(() => {
+          requestZoomToLayer({
+            configId: layer.configId,
+            key: layer.key,
+            builtInKey: layer.builtInKey,
+          });
+        }, 1800);
+        return;
+      }
+      setActiveScene("tiles");
+    }
+
+    requestZoomToLayer({
+      configId: layer.configId,
+      key: layer.key,
+      builtInKey: layer.builtInKey,
+    });
   };
 
   const loadDemoScene = () => {
@@ -696,9 +737,8 @@ export function TwinWorkspace() {
                         </span>
                       </div>
                       <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-                        Chase view — WASD drives the robot (W/S move, A/D turn).
-                        Drag to orbit, wheel to zoom. Watch ATLAS-01 move on
-                        campus.
+                        Stays on campus roads (not through buildings). WASD:
+                        W/S move, A/D turn. Drag orbit, wheel zoom.
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -764,14 +804,16 @@ export function TwinWorkspace() {
                         size="sm"
                         variant={
                           activeScene === "tiles" &&
-                          tilesetUrl.includes("sandcastle")
+                          (tilesetUrl.includes("pelican-public") ||
+                            tilesetUrl.includes("agi-hq") ||
+                            tilesetUrl.includes("sandcastle"))
                             ? "default"
                             : "secondary"
                         }
                         onClick={loadSandcastleTest}
                       >
                         <FlaskConical className="h-3.5 w-3.5" />
-                        Sample
+                        Sample (AGI HQ)
                       </Button>
                       <Button
                         size="sm"
@@ -803,7 +845,7 @@ export function TwinWorkspace() {
                           setTilesetUrl(e.target.value);
                           setActiveScene(e.target.value.trim() ? "tiles" : "demo");
                         }}
-                        placeholder="/uploads/tilesets/…/tileset.json"
+                        placeholder={SAMPLE_TILESET_URL}
                         className="mt-1.5 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 font-mono text-[11px] text-slate-100 outline-none ring-teal-400/40 placeholder:text-slate-600 focus:ring-2"
                       />
                     </label>
@@ -845,42 +887,46 @@ export function TwinWorkspace() {
                       </Link>
                     </p>
                   ) : (
-                    layerCatalog.layers.map((layer) => (
-                      <div
-                        key={layer.configId}
-                        className="flex items-start justify-between gap-3 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2.5"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm text-slate-100">{layer.label}</p>
-                          <p className="truncate text-xs text-slate-500">
-                            {layer.description}
-                          </p>
+                    <div className="space-y-2">
+                      <p className="text-[11px] leading-relaxed text-slate-500">
+                        Toggle visibility or Focus to fly the camera. External
+                        tiles Focus loads the AGI HQ sample when none is set.
+                      </p>
+                      {layerCatalog.layers.map((layer) => (
+                        <div
+                          key={layer.configId}
+                          className="flex items-start justify-between gap-3 rounded-lg border border-white/8 bg-[#0a121c]/80 px-3 py-2.5"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-slate-100">
+                              {layer.label}
+                            </p>
+                            <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
+                              {layer.description}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+                            <Button
+                              size="icon"
+                              variant="secondary"
+                              className="h-8 w-8 border border-white/10"
+                              title={`Zoom to ${layer.label}`}
+                              aria-label={`Zoom to ${layer.label}`}
+                              onClick={() => focusLayer(layer)}
+                            >
+                              <Focus className="h-3.5 w-3.5" />
+                            </Button>
+                            <Switch
+                              checked={layer.visible}
+                              onCheckedChange={() =>
+                                toggleLayer(layer.configId)
+                              }
+                              aria-label={`Toggle ${layer.label}`}
+                            />
+                          </div>
                         </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8"
-                            title={`Zoom to ${layer.label}`}
-                            aria-label={`Zoom to ${layer.label}`}
-                            onClick={() =>
-                              requestZoomToLayer({
-                                configId: layer.configId,
-                                key: layer.key,
-                                builtInKey: layer.builtInKey,
-                              })
-                            }
-                          >
-                            <Focus className="h-3.5 w-3.5" />
-                          </Button>
-                          <Switch
-                            checked={layer.visible}
-                            onCheckedChange={() => toggleLayer(layer.configId)}
-                            aria-label={`Toggle ${layer.label}`}
-                          />
-                        </div>
-                      </div>
-                    ))
+                      ))}
+                    </div>
                   ))}
 
                 {panel === "tools" && (
