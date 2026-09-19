@@ -79,7 +79,12 @@ import {
   type PoleLightCaches,
 } from "@/lib/twin/pole-lights";
 import type { Alert, WalkthroughMode } from "@/lib/twin/types";
-import { TWIN_LOOK, buildingFinish } from "@/lib/twin/visual-theme";
+import {
+  applyCampusTimeOfDay,
+  emptyCampusLightExtras,
+  type CampusLightExtras,
+} from "@/lib/twin/campus-lighting";
+import { TWIN_LOOK, buildingLook } from "@/lib/twin/visual-theme";
 import type { SceneWeather } from "@/lib/weather/types";
 import {
   applyTimeOfDay,
@@ -224,14 +229,14 @@ export function CesiumViewer({
   const poleEntities = useRef<Map<string, any>>(new Map());
   const poleLightCaches = useRef<PoleLightCaches>({
     poles: new Map(),
+    bases: new Map(),
     arms: new Map(),
     housings: new Map(),
     bulbs: new Map(),
     glows: new Map(),
     beams: new Map(),
-    pools: new Map(),
-    rings: new Map(),
   });
+  const campusLightExtras = useRef<CampusLightExtras>(emptyCampusLightExtras());
   const robotHandle = useRef<AtlasRobotHandle | null>(null);
   const robotPoseRef = useRef<RobotPose>({ ...ROBOT_SPAWN });
   const wanderRef = useRef(createWanderController(7));
@@ -435,20 +440,20 @@ export function CesiumViewer({
           Cesium.Cartesian3.fromDegrees(lon, lat, 0)
         );
         const height = f.properties.height || 20;
-        const color = buildingFinish(f.properties.use);
+        const look = buildingLook(f.properties.use, timeOfDayRef.current === "night");
         buildingEntities.push(
           viewer.entities.add({
             name: f.properties.name,
             polygon: {
               hierarchy,
               extrudedHeight: height,
-              material: Cesium.Color.fromCssColorString(color).withAlpha(
-                TWIN_LOOK.buildings.alpha
+              material: Cesium.Color.fromCssColorString(look.fill).withAlpha(
+                look.alpha
               ),
               outline: true,
               outlineColor: Cesium.Color.fromCssColorString(
-                TWIN_LOOK.buildings.outline
-              ).withAlpha(TWIN_LOOK.buildings.outlineAlpha),
+                look.outline
+              ).withAlpha(look.outlineAlpha),
               closeTop: true,
               closeBottom: true,
             },
@@ -640,7 +645,7 @@ export function CesiumViewer({
         canvas.tabIndex = 0;
       }
 
-      applyTimeOfDay(Cesium, viewer, "day");
+      applyTimeOfDay(Cesium, viewer, timeOfDayRef.current, weatherRef.current, CAMPUS.lon);
       const home =
         platformSettingsRef.current?.simulation.cameraHome ??
         DEFAULT_SIMULATION.cameraHome;
@@ -678,6 +683,19 @@ export function CesiumViewer({
       onStatusRef.current("Loading twin…");
       await loadDemoLayers(Cesium, viewer);
       if (destroyed) return;
+      applyBuildingSymbology(
+        Cesium,
+        layerEntities.current.buildings ?? [],
+        symbologyRef.current,
+        timeOfDayRef.current
+      );
+      applyCampusTimeOfDay(
+        Cesium,
+        viewer,
+        timeOfDayRef.current,
+        layerEntities.current,
+        campusLightExtras.current
+      );
 
       const seed: PlacedPole[] = [
         { id: uid(), lon: -122.1352, lat: 37.42188, height: 0, lightsOn: true },
@@ -1364,7 +1382,13 @@ export function CesiumViewer({
     const Cesium = cesiumRef.current;
     const viewer = viewerRef.current;
     if (!Cesium || !viewer) return;
-    applyWeatherToScene(Cesium, viewer, weather ?? null, timeOfDay);
+    applyWeatherToScene(
+      Cesium,
+      viewer,
+      weather ?? null,
+      timeOfDay,
+      CAMPUS.lon
+    );
     applyTilesetTimeOfDay(
       Cesium,
       tilesetRef.current,
@@ -1378,6 +1402,19 @@ export function CesiumViewer({
       timeOfDay,
       tilesetStylePreset,
       weather
+    );
+    applyBuildingSymbology(
+      Cesium,
+      layerEntities.current.buildings ?? [],
+      symbologyRef.current,
+      timeOfDay
+    );
+    applyCampusTimeOfDay(
+      Cesium,
+      viewer,
+      timeOfDay,
+      layerEntities.current,
+      campusLightExtras.current
     );
     viewer.scene.requestRender();
     // Wind particles disabled — don't force continuous render for weather alone
@@ -1510,6 +1547,7 @@ export function CesiumViewer({
           const lit = show && poleOn && night;
           for (const map of [
             caches.poles,
+            caches.bases,
             caches.arms,
             caches.housings,
             caches.bulbs,
@@ -1520,11 +1558,7 @@ export function CesiumViewer({
           const glow = caches.glows.get(id);
           if (glow) glow.show = show && poleOn;
           const beam = caches.beams.get(id);
-          const pool = caches.pools.get(id);
-          const ring = caches.rings?.get(id);
           if (beam) beam.show = lit;
-          if (pool) pool.show = lit;
-          if (ring) ring.show = lit;
         }
         needsRender = true;
       }
@@ -2314,7 +2348,15 @@ export function CesiumViewer({
     applyBuildingSymbology(
       Cesium,
       layerEntities.current.buildings ?? [],
-      symbology
+      symbology,
+      timeOfDayRef.current
+    );
+    applyCampusTimeOfDay(
+      Cesium,
+      viewer,
+      timeOfDayRef.current,
+      layerEntities.current,
+      campusLightExtras.current
     );
     applySensorSymbology(
       Cesium,
