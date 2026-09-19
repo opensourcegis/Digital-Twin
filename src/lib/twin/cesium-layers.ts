@@ -1,5 +1,6 @@
+import type { TimeOfDay } from "@/lib/types";
 import { BUILDING_GUID_BY_CODE } from "./asset-map";
-import { TWIN_LOOK, buildingFinish } from "./visual-theme";
+import { TWIN_LOOK, buildingLook } from "./visual-theme";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -8,28 +9,32 @@ type CesiumNS = any;
 export function applyBuildingSymbology(
   Cesium: CesiumNS,
   entities: any[],
-  symbology: Record<string, { color: string; pulse: boolean }>
+  symbology: Record<string, { color: string; pulse: boolean }>,
+  mode: TimeOfDay = "day"
 ) {
+  const night = mode === "night";
   for (const ent of entities) {
     const props = ent.properties;
     const code = props?.id?.getValue?.() ?? props?.id;
     const guid = BUILDING_GUID_BY_CODE[code];
     if (!ent.polygon) continue;
     const use = props?.use?.getValue?.() ?? props?.use;
-    const architectural = buildingFinish(typeof use === "string" ? use : undefined);
+    const look = buildingLook(
+      typeof use === "string" ? use : undefined,
+      night
+    );
     const sym = guid ? symbology[guid] : undefined;
-    // Alert tint only — never neon-green healthy buildings
-    const color = sym?.pulse || sym?.color === "#e57373" || sym?.color === "#e2b15a"
-      ? sym.color
-      : architectural;
+    const isAlert = Boolean(
+      sym?.pulse || sym?.color === "#e57373" || sym?.color === "#e2b15a"
+    );
+    ent._twinAlert = isAlert;
+    const color = isAlert && sym?.color ? sym.color : look.fill;
     ent.polygon.material = Cesium.Color.fromCssColorString(color).withAlpha(
-      sym?.pulse ? 0.72 : TWIN_LOOK.buildings.alpha
+      isAlert && sym?.pulse ? 0.78 : look.alpha
     );
     ent.polygon.outlineColor = Cesium.Color.fromCssColorString(
-      sym?.pulse
-        ? TWIN_LOOK.buildings.alertOutline
-        : TWIN_LOOK.buildings.outline
-    ).withAlpha(TWIN_LOOK.buildings.outlineAlpha);
+      isAlert ? TWIN_LOOK.buildings.alertOutline : look.outline
+    ).withAlpha(look.outlineAlpha);
   }
 }
 
