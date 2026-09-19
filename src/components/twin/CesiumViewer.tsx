@@ -605,8 +605,15 @@ export function CesiumViewer({
         const t = toolRef.current;
 
         if (t === "robot-waypoints") {
-          // Stay on the external layer — bring robot here if still on campus
-          ensureRobotOnActiveTilesetRef.current?.({ snapCamera: true });
+          // Do NOT snap camera to the old robot — keep the current layer in view
+          // so the user can click a point on the external tileset.
+          ensureRobotOnActiveTilesetRef.current?.({ snapCamera: false });
+          pauseWalkChase(120_000);
+
+          // Need a rendered depth frame for reliable tileset picks
+          viewer.scene.requestRenderMode = false;
+          viewer.scene.requestRender();
+
           const hit = pickSurfaceCartesian(Cesium, viewer, movement.position, {
             tileset: tilesetRef.current,
             exclude: robotHandle.current?.entities ?? [],
@@ -614,13 +621,8 @@ export function CesiumViewer({
           if (!hit) {
             if (tilesetRef.current) {
               onStatusRef.current(
-                "Click the external tileset mesh to place the robot"
+                "Click a visible point on the external tileset mesh"
               );
-              reportTwinError({
-                source: "Click to move",
-                message:
-                  "No surface hit on the external tileset — click the mesh (not empty sky)",
-              });
             } else {
               onStatusRef.current(
                 "Click a surface (tileset or ground) to place"
@@ -636,7 +638,7 @@ export function CesiumViewer({
           };
           robotPoseRef.current = next;
           robotHandle.current?.update(next);
-          // Instant chase snap onto the new surface — no sky tween / no campus jump
+          // Only now follow the robot — after a successful place on this layer
           viewer.camera.cancelFlight?.();
           pauseWalkChase(0);
           clearUserCameraControl();
@@ -658,7 +660,7 @@ export function CesiumViewer({
             });
           }
           onStatusRef.current(
-            `Robot on surface · ${hit.lat.toFixed(5)}, ${hit.lon.toFixed(5)} · ${hit.height.toFixed(1)} m`
+            `Robot placed on layer · ${hit.lat.toFixed(5)}, ${hit.lon.toFixed(5)} · ${hit.height.toFixed(1)} m`
           );
           onMeasureRef.current({
             kind: "identify",
@@ -1498,9 +1500,9 @@ export function CesiumViewer({
 
       robotPoseRef.current = placed;
       robotHandle.current?.update(placed);
-      pauseWalkChase(0);
-      clearUserCameraControl();
       if (opts?.snapCamera !== false) {
+        pauseWalkChase(0);
+        clearUserCameraControl();
         if (walkthroughRef.current === "walk") {
           applyWalkCamera(Cesium, viewer, placed);
         } else {
@@ -1520,7 +1522,7 @@ export function CesiumViewer({
         }
       }
       onStatusRef.current(
-        `Robot brought to external tileset · ${placed.lat.toFixed(5)}, ${placed.lon.toFixed(5)}`
+        `Robot on external tileset · ${placed.lat.toFixed(5)}, ${placed.lon.toFixed(5)}`
       );
       viewer.scene.requestRender();
       return true;
@@ -1641,8 +1643,27 @@ export function CesiumViewer({
     if (!Cesium || !viewer || !readyRef.current) return;
 
     if (walkthroughMode === "walk") {
-      // Keep simulation on the external layer when a tileset is loaded
-      ensureRobotOnActiveTileset({ snapCamera: true });
+      const placing = tool === "robot-waypoints";
+
+      // Quietly move robot onto tileset data without yanking the camera
+      ensureRobotOnActiveTileset({ snapCamera: false });
+
+      if (placing) {
+        // Hold the current view (new layer) so the user can click a point.
+        // Chase cam would otherwise snap back to the robot on the previous layer.
+        pauseWalkChase(120_000);
+        markUserCameraControl(viewer);
+        viewer.camera.cancelFlight?.();
+        viewer.scene.requestRenderMode = false;
+        viewer.scene.requestRender();
+        onStatusRef.current(
+          tilesetRef.current
+            ? "Click a point on the external tileset to place ATLAS-01"
+            : "Click a point on the map to place ATLAS-01"
+        );
+        return;
+      }
+
       clearUserCameraControl();
       viewer.camera.cancelFlight?.();
       enterWalkCamera(Cesium, viewer, robotPoseRef.current);
@@ -1655,7 +1676,7 @@ export function CesiumViewer({
       }
       onStatusRef.current(
         tilesetRef.current
-          ? "Walk — WASD on external tileset · click to place stays here"
+          ? "Walk — WASD on external tileset · drag orbit · wheel zoom"
           : "Walk — WASD drive robot · drag orbit · wheel zoom"
       );
       return;
@@ -1672,20 +1693,40 @@ export function CesiumViewer({
     }
   }, [
     walkthroughMode,
+    tool,
     sceneReadyTick,
     syncRobotPose,
     ensureRobotOnActiveTileset,
   ]);
 
-  // Click-to-move tool: immediately bring robot onto the loaded tileset
+  // Click-to-move: freeze camera on the layer you're looking at
   useEffect(() => {
     if (!readyRef.current) return;
-    if (tool !== "robot-waypoints") return;
-    ensureRobotOnActiveTileset({ snapCamera: true });
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+
+    if (tool !== "robot-waypoints") {
+      // Leaving place mode — resume chase if still walking
+      if (walkthroughRef.current === "walk") {
+        pauseWalkChase(0);
+        const Cesium = cesiumRef.current;
+        if (Cesium) {
+          ensureRobotOnActiveTileset({ snapCamera: false });
+          enterWalkCamera(Cesium, viewer, robotPoseRef.current);
+        }
+      }
+      return;
+    }
+
+    ensureRobotOnActiveTileset({ snapCamera: false });
+    pauseWalkChase(120_000);
+    markUserCameraControl(viewer);
+    viewer.scene.requestRenderMode = false;
+    viewer.scene.requestRender();
     onStatusRef.current(
       tilesetRef.current
-        ? "Click the external tileset to place ATLAS-01"
-        : "Click the map to place ATLAS-01"
+        ? "Click a point on the external tileset to place ATLAS-01"
+        : "Click a point on the map to place ATLAS-01"
     );
   }, [tool, sceneReadyTick, ensureRobotOnActiveTileset]);
 
