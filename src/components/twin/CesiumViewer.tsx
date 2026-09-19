@@ -23,8 +23,10 @@ import {
 import {
   attachKeyboardWalk,
   enterWalkCamera,
+  applyWalkCamera,
   pauseWalkChase,
 } from "@/lib/twin/keyboard-walk";
+import { pickSurfaceCartesian } from "@/lib/twin/pick-surface";
 import {
   attachCameraControls,
   clearUserCameraControl,
@@ -496,6 +498,13 @@ export function CesiumViewer({
 
       viewer.scene.globe.depthTestAgainstTerrain = false;
       viewer.scene.requestRenderMode = true;
+      // Depth picking for click-to-place on 3D Tiles
+      try {
+        viewer.scene.pickTranslucentDepth = true;
+        viewer.scene.useDepthPicking = true;
+      } catch {
+        /* older Cesium */
+      }
       // Allow interactive wheel/pinch to keep rendering between frames
       viewer.scene.maximumRenderTimeChange = 1 / 30;
       if (viewer.scene.postProcessStages?.fxaa) {
@@ -577,6 +586,59 @@ export function CesiumViewer({
 
       handler.setInputAction((movement: { position: any }) => {
         const t = toolRef.current;
+
+        if (t === "robot-waypoints") {
+          const hit = pickSurfaceCartesian(Cesium, viewer, movement.position, {
+            tileset: tilesetRef.current,
+            exclude: robotHandle.current?.root
+              ? [robotHandle.current.root]
+              : [],
+          });
+          if (!hit) {
+            onStatusRef.current("Click a surface (tileset or ground) to place");
+            return;
+          }
+          const next = {
+            ...robotPoseRef.current,
+            lon: hit.lon,
+            lat: hit.lat,
+            height: hit.height,
+          };
+          robotPoseRef.current = next;
+          robotHandle.current?.update(next);
+          // Instant chase snap onto the new surface — no sky tween
+          viewer.camera.cancelFlight?.();
+          pauseWalkChase(0);
+          clearUserCameraControl();
+          if (walkthroughRef.current === "walk") {
+            applyWalkCamera(Cesium, viewer, next);
+          } else {
+            viewer.camera.setView({
+              destination: Cesium.Cartesian3.fromDegrees(
+                hit.lon,
+                hit.lat,
+                hit.height + 40
+              ),
+              orientation: {
+                heading: next.heading,
+                pitch: Cesium.Math.toRadians(-35),
+                roll: 0,
+              },
+            });
+          }
+          onStatusRef.current(
+            `Robot on surface · ${hit.lat.toFixed(5)}, ${hit.lon.toFixed(5)} · ${hit.height.toFixed(1)} m`
+          );
+          onMeasureRef.current({
+            kind: "identify",
+            label: "Robot on surface",
+            value: `${hit.lat.toFixed(5)}, ${hit.lon.toFixed(5)}`,
+            detail: `h ${hit.height.toFixed(1)} m — WASD to walk`,
+          });
+          viewer.scene.requestRender();
+          return;
+        }
+
         const cartesian = pickGround(Cesium, viewer, movement.position);
         if (!cartesian) return;
 
@@ -596,51 +658,6 @@ export function CesiumViewer({
             value: `${polesRef.current.length + 1} poles`,
             detail: `${pole.lat.toFixed(5)}, ${pole.lon.toFixed(5)}`,
           });
-          return;
-        }
-
-        if (t === "robot-waypoints") {
-          const carto = Cesium.Cartographic.fromCartesian(cartesian);
-          const lon = Cesium.Math.toDegrees(carto.longitude);
-          const lat = Cesium.Math.toDegrees(carto.latitude);
-          let height =
-            typeof carto.height === "number" && Number.isFinite(carto.height)
-              ? carto.height
-              : robotPoseRef.current.height;
-          // Prefer clamp onto tileset/globe surface
-          try {
-            if (viewer.scene.clampToHeightSupported) {
-              const clamped = viewer.scene.clampToHeight(cartesian, [
-                robotHandle.current?.root,
-              ]);
-              if (clamped) {
-                const c = Cesium.Cartographic.fromCartesian(clamped);
-                if (c && Number.isFinite(c.height)) height = c.height;
-              }
-            }
-          } catch {
-            /* keep picked height */
-          }
-          const next = {
-            ...robotPoseRef.current,
-            lon,
-            lat,
-            height: Math.max(0.05, height),
-          };
-          robotPoseRef.current = next;
-          robotHandle.current?.update(next);
-          pauseWalkChase(400);
-          clearUserCameraControl();
-          onStatusRef.current(
-            `Robot moved · ${lat.toFixed(5)}, ${lon.toFixed(5)} · h ${height.toFixed(1)} m`
-          );
-          onMeasureRef.current({
-            kind: "identify",
-            label: "Robot relocated",
-            value: `${lat.toFixed(5)}, ${lon.toFixed(5)}`,
-            detail: `Height ${height.toFixed(1)} m — WASD to walk`,
-          });
-          viewer.scene.requestRender();
           return;
         }
 
