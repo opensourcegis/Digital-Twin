@@ -392,10 +392,12 @@ export function TwinWorkspace() {
       { id: "viewshed" as const, label: "Viewshed", icon: Eye },
       { id: "place-pole" as const, label: "Place pole", icon: Zap },
       { id: "draw-poles" as const, label: "Draw poles", icon: Waypoints },
+      { id: "robot-waypoints" as const, label: "Move robot", icon: MapPin },
     ] as const;
     return all.filter(
       (t) =>
         t.id === "navigate" ||
+        t.id === "robot-waypoints" ||
         gis.enabledTools.includes(t.id as (typeof gis.enabledTools)[number])
     );
   }, [gis.enabledTools]);
@@ -608,7 +610,9 @@ export function TwinWorkspace() {
       {twin.walkthroughMode === "walk" && (
         <div className="pointer-events-none absolute left-1/2 top-16 z-20 -translate-x-1/2 animate-in-fade">
           <div className="glass-panel rounded-full px-3 py-1.5 text-[11px] text-slate-200">
-            Walk · {sim.robotName} · WASD drive · chase cam
+            Walk · {sim.robotName} · WASD
+            {tilesetUrl ? " · tileset surface" : " · campus roads"}
+            {tool === "robot-waypoints" ? " · click to place" : ""}
           </div>
         </div>
       )}
@@ -715,6 +719,7 @@ export function TwinWorkspace() {
                       }
                       onChange={handleWalkthroughChange}
                       robotPlaying={false}
+                      tilesetActive={Boolean(tilesetUrl.trim())}
                     />
                     <div className="rounded-lg border border-amber-400/20 bg-amber-400/[0.06] p-3">
                       <div className="flex items-center justify-between gap-2">
@@ -737,8 +742,9 @@ export function TwinWorkspace() {
                         </span>
                       </div>
                       <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-                        Stays on campus roads (not through buildings). WASD:
-                        W/S move, A/D turn. Drag orbit, wheel zoom.
+                        {tilesetUrl
+                          ? "External tileset — WASD walks the mesh surface. Use Click to move to drop ATLAS-01 anywhere on the model."
+                          : "Campus roads — WASD stays outdoors. Load a tileset to walk its surface."}
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -757,6 +763,22 @@ export function TwinWorkspace() {
                           : "Enter walk"}
                       </Button>
                       <Button
+                        variant={
+                          tool === "robot-waypoints" ? "default" : "secondary"
+                        }
+                        onClick={() => {
+                          setTool("robot-waypoints");
+                          twin.setWalkthroughMode("walk");
+                          setRobot((r) => ({ ...r, playing: false }));
+                          setStatus(
+                            "Click the map or tileset surface to move the robot"
+                          );
+                        }}
+                      >
+                        <MapPin className="h-4 w-4" />
+                        Click to move
+                      </Button>
+                      <Button
                         variant="secondary"
                         onClick={() => {
                           setRobot((r) => ({
@@ -765,6 +787,7 @@ export function TwinWorkspace() {
                             progress: 0,
                           }));
                           twin.setWalkthroughMode("walk");
+                          setTool("navigate");
                         }}
                       >
                         Reset

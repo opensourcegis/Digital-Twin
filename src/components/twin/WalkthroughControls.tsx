@@ -9,6 +9,7 @@ interface WalkthroughControlsProps {
   mode: WalkthroughMode;
   onChange: (mode: WalkthroughMode) => void;
   robotPlaying?: boolean;
+  tilesetActive?: boolean;
 }
 
 const MODES = [
@@ -29,6 +30,7 @@ const MODES = [
 export function WalkthroughControls({
   mode,
   onChange,
+  tilesetActive = false,
 }: WalkthroughControlsProps) {
   const effective: "off" | "walk" = mode === "walk" ? "walk" : "off";
   const active = MODES.find((m) => m.id === effective) ?? MODES[0];
@@ -46,14 +48,16 @@ export function WalkthroughControls({
         </div>
         {effective === "walk" && (
           <span className="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-emerald-500/15 text-emerald-300">
-            WASD
+            {tilesetActive ? "Tileset" : "WASD"}
           </span>
         )}
       </div>
       <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
         {effective === "walk"
-          ? "Chase camera on ATLAS-01 — stays on campus roads. WASD drive (W/S move, A/D turn), drag orbit, wheel zoom."
-          : "Orbit the campus. Switch to Walk to drive the robot on roads."}
+          ? tilesetActive
+            ? "Walk the external tileset surface — WASD drive; Click to move drops the robot on the mesh."
+            : "Campus roads — WASD drive. Load External 3D Tiles to walk that surface instead."
+          : "Orbit freely. Focus a tileset, then Walk + Click to move the robot onto it."}
       </p>
       <div className="mt-3 grid grid-cols-2 gap-1">
         {MODES.map(({ id, label, Icon }) => (

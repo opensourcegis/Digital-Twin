@@ -3,8 +3,8 @@ import { snapToCampusRoads } from "@/lib/twin/campus-roads";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type CesiumNS = any;
 
-/** Campus walk bounds (EPSG:4326) — keep robot on site */
-const WALK_BOUNDS = {
+/** Campus walk bounds (EPSG:4326) — keep robot on site in demo mode */
+export const CAMPUS_WALK_BOUNDS = {
   minLon: -122.1362,
   maxLon: -122.1318,
   minLat: 37.4212,
@@ -73,9 +73,56 @@ export interface WalkDriver {
   setPose: (pose: WalkPose) => void;
 }
 
+export type WalkSurfaceMode = "campus" | "tileset";
+
+export interface WalkAttachOptions {
+  /** campus = road snap + campus bounds; tileset = free surface + sampled height */
+  getSurfaceMode?: () => WalkSurfaceMode;
+  /** Exclude robot entities from height sampling */
+  getExcludeObjects?: () => any[];
+  /** When false, left-drag won't orbit (e.g. while click-to-place is active) */
+  getAllowOrbitDrag?: () => boolean;
+}
+
 /**
- * Third-person chase camera behind/above the robot so movement is visible.
- * Uses fixed ellipsoid heights — never samples terrain (avoids globe jump).
+ * Sample ground/tileset height at lon/lat. Falls back to previous height.
+ */
+export function sampleSurfaceHeight(
+  Cesium: CesiumNS,
+  viewer: any,
+  lon: number,
+  lat: number,
+  fallbackH: number,
+  exclude: any[] = []
+): number {
+  try {
+    const carto = Cesium.Cartographic.fromDegrees(lon, lat);
+    if (viewer.scene.sampleHeightSupported) {
+      const h = viewer.scene.sampleHeight(carto, exclude);
+      if (typeof h === "number" && Number.isFinite(h)) {
+        return Math.max(0.05, h);
+      }
+    }
+    const cartesian = Cesium.Cartesian3.fromDegrees(lon, lat, fallbackH + 40);
+    if (viewer.scene.clampToHeightSupported) {
+      const clamped = viewer.scene.clampToHeight(cartesian, exclude);
+      if (clamped) {
+        const c = Cesium.Cartographic.fromCartesian(clamped);
+        if (c && Number.isFinite(c.height)) return Math.max(0.05, c.height);
+      }
+    }
+    const globeH = viewer.scene.globe?.getHeight?.(carto);
+    if (typeof globeH === "number" && Number.isFinite(globeH)) {
+      return Math.max(0.05, globeH);
+    }
+  } catch {
+    /* keep fallback */
+  }
+  return Math.max(0.12, fallbackH);
+}
+
+/**
+ * Third-person chase camera behind/above the robot.
  */
 export function applyWalkCamera(
   Cesium: CesiumNS,
@@ -138,16 +185,15 @@ export function enterWalkCamera(
 }
 
 /**
- * Game-style WASD: moves the robot on campus.
- * Chase camera stays zoomed out behind the unit so you see it move.
- * Drag orbits; wheel zooms chase distance.
+ * Game-style WASD. Campus mode snaps to roads; tileset mode walks the mesh surface.
  */
 export function attachKeyboardWalk(
   viewer: any,
   Cesium: CesiumNS,
   getMode: () => "off" | "first" | "third" | "walk",
   driver: WalkDriver,
-  onActive?: () => void
+  onActive?: () => void,
+  options?: WalkAttachOptions
 ) {
   const keys = new Set<string>();
   let raf: number | null = null;
@@ -167,6 +213,10 @@ export function attachKeyboardWalk(
     enableLook: boolean;
     enableRotate: boolean;
   } | null = null;
+
+  const getSurfaceMode = () => options?.getSurfaceMode?.() ?? "campus";
+  const getExclude = () => options?.getExcludeObjects?.() ?? [];
+  const getAllowOrbit = () => options?.getAllowOrbitDrag?.() ?? true;
 
   const camOpts = () => ({
     yawOffset,
@@ -224,6 +274,7 @@ export function attachKeyboardWalk(
 
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
+    const surface = getSurfaceMode();
 
     let pose = { ...driver.getPose() };
     let moved = false;
@@ -236,7 +287,6 @@ export function attachKeyboardWalk(
 
     if (forward || back || left || right) {
       onActive?.();
-      // A/D (or arrows) turn the robot so rotation is visible in chase view
       if (left) pose.heading -= TURN_RATE_RAD * dt;
       if (right) pose.heading += TURN_RATE_RAD * dt;
       while (pose.heading > Math.PI) pose.heading -= Math.PI * 2;
@@ -256,34 +306,48 @@ export function attachKeyboardWalk(
       }
       if (east !== 0 || north !== 0) {
         const { dLon, dLat } = metersToLonLat(east, north, pose.lat);
-        const rawLon = clamp(
-          pose.lon + dLon,
-          WALK_BOUNDS.minLon,
-          WALK_BOUNDS.maxLon
+        let lon = pose.lon + dLon;
+        let lat = pose.lat + dLat;
+        if (surface === "campus") {
+          lon = clamp(lon, CAMPUS_WALK_BOUNDS.minLon, CAMPUS_WALK_BOUNDS.maxLon);
+          lat = clamp(lat, CAMPUS_WALK_BOUNDS.minLat, CAMPUS_WALK_BOUNDS.maxLat);
+          const snapped = snapToCampusRoads(lon, lat);
+          lon = snapped.lon;
+          lat = snapped.lat;
+        }
+        const height = sampleSurfaceHeight(
+          Cesium,
+          viewer,
+          lon,
+          lat,
+          pose.height,
+          getExclude()
         );
-        const rawLat = clamp(
-          pose.lat + dLat,
-          WALK_BOUNDS.minLat,
-          WALK_BOUNDS.maxLat
-        );
-        const snapped = snapToCampusRoads(rawLon, rawLat);
-        pose = {
-          ...pose,
-          lon: snapped.lon,
-          lat: snapped.lat,
-          height: Math.max(0.12, pose.height),
-        };
+        pose = { ...pose, lon, lat, height };
       } else {
         pose = { ...pose };
       }
       moved = true;
+    } else if (surface === "tileset") {
+      // Keep feet on mesh even when idle (tiles streaming in)
+      const height = sampleSurfaceHeight(
+        Cesium,
+        viewer,
+        pose.lon,
+        pose.lat,
+        pose.height,
+        getExclude()
+      );
+      if (Math.abs(height - pose.height) > 0.05) {
+        pose = { ...pose, height };
+        moved = true;
+      }
     }
 
     if (moved) {
       driver.setPose(pose);
     }
 
-    // Chase camera follows so the robot body stays in frame
     if (!isWalkChasePaused()) {
       applyWalkCamera(Cesium, viewer, driver.getPose(), camOpts());
     }
@@ -312,6 +376,7 @@ export function attachKeyboardWalk(
 
   const onPointerDown = (e: PointerEvent) => {
     if (getMode() !== "walk") return;
+    if (!getAllowOrbit()) return;
     if (e.button !== 0) return;
     dragging = true;
     lastX = e.clientX;
@@ -329,7 +394,6 @@ export function attachKeyboardWalk(
     const dy = e.clientY - lastY;
     lastX = e.clientX;
     lastY = e.clientY;
-    // Orbit around robot (don't turn robot body on look — WASD owns heading)
     yawOffset += dx * LOOK_SENS;
     while (yawOffset > Math.PI) yawOffset -= Math.PI * 2;
     while (yawOffset < -Math.PI) yawOffset += Math.PI * 2;
