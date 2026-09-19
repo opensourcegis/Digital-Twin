@@ -79,8 +79,8 @@ export function applyCesium3DTileStyle(
 
 /**
  * Day/night look for mesh / photogrammetry 3D Tiles.
- * Many external tilesets are unlit or IBL-baked and ignore scene.light —
- * dim via imageBasedLighting + colorBlend MIX (keeps texture, darkens).
+ * Photogrammetry often ignores scene.light and weak style multiply —
+ * use CustomShader (reliable) plus IBL / colorBlend fallbacks.
  */
 export function applyTilesetTimeOfDay(
   Cesium: CesiumNS,
@@ -89,6 +89,30 @@ export function applyTilesetTimeOfDay(
   stylePreset: TilesetStylePreset = "default"
 ) {
   if (!tileset) return;
+
+  // Primary: CustomShader darkens textured meshes that ignore Cesium3DTileStyle
+  try {
+    if (Cesium.CustomShader) {
+      if (mode === "night") {
+        tileset.customShader = new Cesium.CustomShader({
+          lightingModel: Cesium.LightingModel?.UNLIT,
+          fragmentShaderText: `
+void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+  material.diffuse *= vec3(0.18, 0.22, 0.34);
+  #ifdef HAS_EMISSIVE
+  material.emissive *= 0.15;
+  #endif
+}
+`,
+        });
+      } else {
+        tileset.customShader = undefined;
+      }
+    }
+  } catch (err) {
+    console.warn("Tileset CustomShader day/night failed", err);
+  }
+
   try {
     if (tileset.imageBasedLighting) {
       tileset.imageBasedLighting.imageBasedLightingFactor =
@@ -117,7 +141,6 @@ export function applyTilesetTimeOfDay(
     /* ignore */
   }
 
-  // Photogrammetry often ignores pure style multiply unless colorBlend is MIX/REPLACE
   try {
     if (Cesium.Cesium3DTileColorBlendMode) {
       tileset.colorBlendMode =
