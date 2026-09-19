@@ -266,9 +266,7 @@ export function PlatformDesignAdminPanel() {
                   }
                 >
                   <option value="off">Orbit</option>
-                  <option value="walk">Walk</option>
-                  <option value="third">Chase</option>
-                  <option value="first">Cab</option>
+                  <option value="walk">Walk (WASD)</option>
                 </select>
               </label>
               <Toggle

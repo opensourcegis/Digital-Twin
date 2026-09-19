@@ -506,19 +506,35 @@ export function CesiumViewer({
       const home =
         platformSettingsRef.current?.simulation.cameraHome ??
         DEFAULT_SIMULATION.cameraHome;
-      viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(
-          home.lon,
-          home.lat,
-          home.height
-        ),
-        orientation: {
-          heading: Cesium.Math.toRadians(home.headingDeg),
-          pitch: Cesium.Math.toRadians(home.pitchDeg),
-          roll: 0,
-        },
-        duration: 1.4,
-      });
+      if (walkthroughRef.current === "walk") {
+        // Skip orbital flyTo — it fights cab view and can leave the camera in space
+        viewer.camera.setView({
+          destination: Cesium.Cartesian3.fromDegrees(
+            home.lon,
+            home.lat,
+            1.75
+          ),
+          orientation: {
+            heading: Cesium.Math.toRadians(35),
+            pitch: Cesium.Math.toRadians(-8),
+            roll: 0,
+          },
+        });
+      } else {
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(
+            home.lon,
+            home.lat,
+            home.height
+          ),
+          orientation: {
+            heading: Cesium.Math.toRadians(home.headingDeg),
+            pitch: Cesium.Math.toRadians(home.pitchDeg),
+            roll: 0,
+          },
+          duration: 1.4,
+        });
+      }
 
       viewerRef.current = viewer;
       onStatusRef.current("Loading twin…");
@@ -873,6 +889,14 @@ export function CesiumViewer({
           viewer,
           Cesium,
           () => walkthroughRef.current,
+          {
+            getPose: () => robotPoseRef.current,
+            setPose: (pose) => {
+              robotPoseRef.current = pose;
+              robotHandle.current?.update(pose);
+              viewer.scene.requestRender();
+            },
+          },
           () => onWalkActiveRef.current?.()
         );
       } catch (err) {
@@ -1258,10 +1282,19 @@ export function CesiumViewer({
     if (!Cesium || !viewer || !readyRef.current) return;
 
     if (walkthroughMode === "walk") {
+      // Stop free-roam; player drives robot with WASD
       clearUserCameraControl();
-      enterWalkCamera(Cesium, viewer);
+      viewer.camera.cancelFlight?.();
+      enterWalkCamera(Cesium, viewer, robotPoseRef.current);
+      viewer.scene.requestRenderMode = false;
+      const canvas = viewer.scene.canvas as HTMLCanvasElement | undefined;
+      try {
+        canvas?.focus?.({ preventScroll: true });
+      } catch {
+        canvas?.focus?.();
+      }
       onStatusRef.current(
-        "Walk mode — WASD or arrow keys to move, mouse to look"
+        "Walk — WASD move · drag to look · robot cab view"
       );
       return;
     }
@@ -1275,7 +1308,7 @@ export function CesiumViewer({
           : "3rd person — chase camera on ATLAS-01"
       );
     }
-  }, [walkthroughMode, syncRobotPose]);
+  }, [walkthroughMode, sceneReadyTick, syncRobotPose]);
 
   useEffect(() => {
     const Cesium = cesiumRef.current;

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type CesiumNS = any;
 
-/** Campus walk bounds (EPSG:4326) — keep avatar on site */
+/** Campus walk bounds (EPSG:4326) — keep robot on site */
 const WALK_BOUNDS = {
   minLon: -122.1362,
   maxLon: -122.1318,
@@ -9,9 +9,11 @@ const WALK_BOUNDS = {
   maxLat: 37.4236,
 };
 
-const EYE_HEIGHT_M = 1.75;
-const MOVE_SPEED_M_S = 12;
-const STRAFE_SPEED_M_S = 10;
+/** Fixed eye height above ellipsoid — avoid terrain sampling (globe-scale bugs). */
+export const WALK_EYE_HEIGHT_M = 1.75;
+const MOVE_SPEED_M_S = 8;
+const STRAFE_SPEED_M_S = 6.5;
+const LOOK_SENS = 0.005;
 
 const MOVE_KEYS = new Set([
   "arrowup",
@@ -32,99 +34,82 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
-function horizontalMove(
-  Cesium: CesiumNS,
-  origin: any,
-  headingRad: number,
-  distanceM: number
-) {
-  const ellipsoid = Cesium.Ellipsoid.WGS84;
-  const normal = ellipsoid.geodeticSurfaceNormal(origin, new Cesium.Cartesian3());
-  const east = Cesium.Cartesian3.cross(
-    Cesium.Cartesian3.UNIT_Z,
-    normal,
-    new Cesium.Cartesian3()
-  );
-  Cesium.Cartesian3.normalize(east, east);
-  const north = Cesium.Cartesian3.cross(normal, east, new Cesium.Cartesian3());
-  const dir = new Cesium.Cartesian3();
-  Cesium.Cartesian3.multiplyByScalar(north, Math.cos(headingRad), dir);
-  Cesium.Cartesian3.add(
-    dir,
-    Cesium.Cartesian3.multiplyByScalar(
-      east,
-      Math.sin(headingRad),
-      new Cesium.Cartesian3()
-    ),
-    dir
-  );
-  Cesium.Cartesian3.normalize(dir, dir);
-  return Cesium.Cartesian3.add(
-    origin,
-    Cesium.Cartesian3.multiplyByScalar(dir, distanceM, new Cesium.Cartesian3()),
-    new Cesium.Cartesian3()
-  );
+function metersToLonLat(eastM: number, northM: number, lat: number) {
+  const mPerDegLat = 110540;
+  const mPerDegLon = 111320 * Math.cos((lat * Math.PI) / 180);
+  return { dLon: eastM / mPerDegLon, dLat: northM / mPerDegLat };
 }
 
-function clampToCampus(Cesium: CesiumNS, cartesian: any) {
-  const carto = Cesium.Cartographic.fromCartesian(cartesian);
-  let lon = Cesium.Math.toDegrees(carto.longitude);
-  let lat = Cesium.Math.toDegrees(carto.latitude);
-  lon = clamp(lon, WALK_BOUNDS.minLon, WALK_BOUNDS.maxLon);
-  lat = clamp(lat, WALK_BOUNDS.minLat, WALK_BOUNDS.maxLat);
-  return Cesium.Cartesian3.fromRadians(
-    Cesium.Math.toRadians(lon),
-    Cesium.Math.toRadians(lat),
-    carto.height
-  );
+export interface WalkPose {
+  lon: number;
+  lat: number;
+  height: number;
+  heading: number;
 }
 
-function clampToGround(Cesium: CesiumNS, viewer: any, cartesian: any) {
-  const carto = Cesium.Cartographic.fromCartesian(cartesian);
-  let ground =
-    viewer.scene.globe.getHeight(carto) ??
-    viewer.scene.sampleHeight(carto) ??
-    0;
-  if (!Number.isFinite(ground)) ground = 0;
-  const minHeight = ground + 0.5;
-  const maxHeight = ground + 500;
-  carto.height = Math.max(minHeight, Math.min(maxHeight, carto.height));
-  if (carto.height < ground + EYE_HEIGHT_M) {
-    carto.height = ground + EYE_HEIGHT_M;
-  }
-  return clampToCampus(
-    Cesium,
-    Cesium.Cartesian3.fromRadians(carto.longitude, carto.latitude, carto.height)
-  );
+export interface WalkDriver {
+  getPose: () => WalkPose;
+  setPose: (pose: WalkPose) => void;
 }
 
-function forwardBlocked(
+/** Place camera at robot eye — never sample terrain (prevents globe jump). */
+export function applyWalkCamera(
   Cesium: CesiumNS,
   viewer: any,
-  origin: any,
-  dest: any
-): boolean {
-  const direction = Cesium.Cartesian3.normalize(
-    Cesium.Cartesian3.subtract(dest, origin, new Cesium.Cartesian3()),
-    new Cesium.Cartesian3()
+  pose: WalkPose,
+  pitchRad = Cesium.Math.toRadians(-8)
+) {
+  const eye = Cesium.Cartesian3.fromDegrees(
+    pose.lon,
+    pose.lat,
+    Math.max(WALK_EYE_HEIGHT_M, pose.height + WALK_EYE_HEIGHT_M)
   );
-  const ray = new Cesium.Ray(origin, direction);
-  const hit = viewer.scene.pickFromRay?.(ray);
-  if (!hit?.position) return false;
-  const dist = Cesium.Cartesian3.distance(origin, hit.position);
-  return dist < 2.5;
+  viewer.camera.setView({
+    destination: eye,
+    orientation: {
+      heading: pose.heading,
+      pitch: pitchRad,
+      roll: 0,
+    },
+  });
+  viewer.scene.requestRender();
 }
 
+export function enterWalkCamera(
+  Cesium: CesiumNS,
+  viewer: any,
+  pose?: WalkPose | null
+) {
+  const p: WalkPose = pose ?? {
+    lon: -122.1339,
+    lat: 37.42205,
+    height: 0.15,
+    heading: Cesium.Math.toRadians(35),
+  };
+  // Cancel any in-flight camera tween that could yank to space
+  viewer.camera.cancelFlight?.();
+  applyWalkCamera(Cesium, viewer, p);
+}
+
+/**
+ * Game-style WASD: moves the robot on campus; camera locked to cab view.
+ * Mouse drag looks (heading + pitch). No free-fly / no terrain clamp.
+ */
 export function attachKeyboardWalk(
   viewer: any,
   Cesium: CesiumNS,
   getMode: () => "off" | "first" | "third" | "walk",
+  driver: WalkDriver,
   onActive?: () => void
 ) {
   const keys = new Set<string>();
   let raf: number | null = null;
   let last = performance.now();
   let lastMode: ReturnType<typeof getMode> | null = null;
+  let lookPitch = Cesium.Math.toRadians(-8);
+  let dragging = false;
+  let lastX = 0;
+  let lastY = 0;
   let savedController: {
     enableTranslate: boolean;
     enableZoom: boolean;
@@ -145,11 +130,12 @@ export function attachKeyboardWalk(
           enableRotate: ctrl.enableRotate,
         };
       }
+      // Lock Cesium navigation — we own camera via robot pose
       ctrl.enableTranslate = false;
       ctrl.enableTilt = false;
-      ctrl.enableZoom = true;
-      ctrl.enableLook = true;
-      ctrl.enableRotate = true;
+      ctrl.enableZoom = false;
+      ctrl.enableLook = false;
+      ctrl.enableRotate = false;
     } else if (savedController) {
       ctrl.enableTranslate = savedController.enableTranslate;
       ctrl.enableZoom = savedController.enableZoom;
@@ -164,6 +150,10 @@ export function attachKeyboardWalk(
     const mode = getMode();
     if (mode !== lastMode) {
       applyController(mode === "walk");
+      if (mode === "walk") {
+        viewer.camera.cancelFlight?.();
+        applyWalkCamera(Cesium, viewer, driver.getPose(), lookPitch);
+      }
       lastMode = mode;
     }
     if (mode !== "walk") {
@@ -171,77 +161,70 @@ export function attachKeyboardWalk(
       last = now;
       return;
     }
+
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
 
-    if (keys.size > 0) {
+    let pose = { ...driver.getPose() };
+    let moved = false;
+
+    const forward =
+      keys.has("arrowup") || keys.has("w") || keys.has("W");
+    const back = keys.has("arrowdown") || keys.has("s") || keys.has("S");
+    const left = keys.has("arrowleft") || keys.has("a") || keys.has("A");
+    const right = keys.has("arrowright") || keys.has("d") || keys.has("D");
+
+    if (forward || back || left || right) {
       onActive?.();
-      const camera = viewer.camera;
-      let heading = camera.heading;
-      let moved = false;
-
-      const forward =
-        keys.has("arrowup") || keys.has("w") || keys.has("W");
-      const back = keys.has("arrowdown") || keys.has("s") || keys.has("S");
-      const left = keys.has("arrowleft") || keys.has("a") || keys.has("A");
-      const right = keys.has("arrowright") || keys.has("d") || keys.has("D");
-
+      let east = 0;
+      let north = 0;
+      const h = pose.heading;
+      const distF = MOVE_SPEED_M_S * dt;
+      const distS = STRAFE_SPEED_M_S * dt;
       if (forward) {
-        const dest = horizontalMove(
-          Cesium,
-          camera.position,
-          heading,
-          MOVE_SPEED_M_S * dt
-        );
-        if (!forwardBlocked(Cesium, viewer, camera.position, dest)) {
-          camera.position = clampToGround(Cesium, viewer, dest);
-          moved = true;
-        }
+        east += Math.sin(h) * distF;
+        north += Math.cos(h) * distF;
       }
       if (back) {
-        const dest = horizontalMove(
-          Cesium,
-          camera.position,
-          heading + Math.PI,
-          MOVE_SPEED_M_S * dt
-        );
-        camera.position = clampToGround(Cesium, viewer, dest);
-        moved = true;
+        east -= Math.sin(h) * distF;
+        north -= Math.cos(h) * distF;
       }
       if (left) {
-        const dest = horizontalMove(
-          Cesium,
-          camera.position,
-          heading - Math.PI / 2,
-          STRAFE_SPEED_M_S * dt
-        );
-        camera.position = clampToGround(Cesium, viewer, dest);
-        moved = true;
+        east += Math.sin(h - Math.PI / 2) * distS;
+        north += Math.cos(h - Math.PI / 2) * distS;
       }
       if (right) {
-        const dest = horizontalMove(
-          Cesium,
-          camera.position,
-          heading + Math.PI / 2,
-          STRAFE_SPEED_M_S * dt
-        );
-        camera.position = clampToGround(Cesium, viewer, dest);
-        moved = true;
+        east += Math.sin(h + Math.PI / 2) * distS;
+        north += Math.cos(h + Math.PI / 2) * distS;
       }
-
-      if (moved) viewer.scene.requestRender();
+      const { dLon, dLat } = metersToLonLat(east, north, pose.lat);
+      pose = {
+        ...pose,
+        lon: clamp(pose.lon + dLon, WALK_BOUNDS.minLon, WALK_BOUNDS.maxLon),
+        lat: clamp(pose.lat + dLat, WALK_BOUNDS.minLat, WALK_BOUNDS.maxLat),
+        height: Math.max(0.12, pose.height),
+      };
+      moved = true;
     }
+
+    if (moved) {
+      driver.setPose(pose);
+    }
+
+    // Always keep cab camera glued to robot while walking
+    applyWalkCamera(Cesium, viewer, driver.getPose(), lookPitch);
+    viewer.scene.requestRenderMode = false;
 
     raf = requestAnimationFrame(tick);
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (getMode() !== "walk") return;
+    const tag = (e.target as HTMLElement | null)?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
     const k = e.key.toLowerCase();
     if (!isMoveKey(e.key) && !isMoveKey(k)) return;
-    if (["arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) {
-      e.preventDefault();
-    }
+    e.preventDefault();
     keys.add(k);
     keys.add(e.key);
   };
@@ -253,32 +236,64 @@ export function attachKeyboardWalk(
 
   const onBlur = () => keys.clear();
 
+  const onPointerDown = (e: PointerEvent) => {
+    if (getMode() !== "walk") return;
+    if (e.button !== 0) return;
+    dragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    try {
+      (e.target as HTMLElement)?.setPointerCapture?.(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const onPointerMove = (e: PointerEvent) => {
+    if (!dragging || getMode() !== "walk") return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    const pose = { ...driver.getPose() };
+    pose.heading = pose.heading + dx * LOOK_SENS;
+    while (pose.heading > Math.PI) pose.heading -= Math.PI * 2;
+    while (pose.heading < -Math.PI) pose.heading += Math.PI * 2;
+    lookPitch = clamp(
+      lookPitch - dy * LOOK_SENS,
+      Cesium.Math.toRadians(-60),
+      Cesium.Math.toRadians(20)
+    );
+    driver.setPose(pose);
+    onActive?.();
+  };
+
+  const onPointerUp = (e: PointerEvent) => {
+    dragging = false;
+    try {
+      (e.target as HTMLElement)?.releasePointerCapture?.(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const canvas = viewer.scene.canvas as HTMLCanvasElement;
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
   window.addEventListener("blur", onBlur);
+  canvas.addEventListener("pointerdown", onPointerDown);
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
   raf = requestAnimationFrame(tick);
 
   return () => {
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
     window.removeEventListener("blur", onBlur);
+    canvas.removeEventListener("pointerdown", onPointerDown);
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", onPointerUp);
     if (raf) cancelAnimationFrame(raf);
     applyController(false);
   };
 }
-
-export function enterWalkCamera(Cesium: CesiumNS, viewer: any) {
-  const dest = Cesium.Cartesian3.fromDegrees(CAMPUS.lon, CAMPUS.lat, 2);
-  const grounded = clampToGround(Cesium, viewer, dest);
-  viewer.camera.setView({
-    destination: grounded,
-    orientation: {
-      heading: Cesium.Math.toRadians(35),
-      pitch: Cesium.Math.toRadians(-6),
-      roll: 0,
-    },
-  });
-  viewer.scene.requestRender();
-}
-
-const CAMPUS = { lon: -122.1339, lat: 37.42205 };
