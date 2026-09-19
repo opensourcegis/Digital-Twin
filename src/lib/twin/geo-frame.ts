@@ -166,3 +166,59 @@ export function sampleSurfaceHeightEnu(
 
   return Math.max(0.05, h);
 }
+
+/** True if lon/lat/height is inside (or near) the tileset ECEF bounding sphere. */
+export function isPoseOnTileset(
+  Cesium: CesiumNS,
+  tileset: any,
+  pose: { lon: number; lat: number; height: number },
+  slack = 1.25
+): boolean {
+  const bs = tileset?.boundingSphere;
+  if (!bs?.center || !(bs.radius > 0)) return false;
+  const p = Cesium.Cartesian3.fromDegrees(
+    pose.lon,
+    pose.lat,
+    Math.max(0, pose.height),
+    Cesium.Ellipsoid.WGS84
+  );
+  return (
+    Cesium.Cartesian3.distance(p, bs.center) <=
+    Math.max(bs.radius, 1) * slack
+  );
+}
+
+/**
+ * Pose at tileset center on the mesh (WGS84). Used to bring the robot onto
+ * the external layer when Click-to-move / Walk starts while still on campus.
+ */
+export function poseAtTilesetCenter(
+  Cesium: CesiumNS,
+  viewer: any,
+  tileset: any,
+  opts?: { exclude?: any[]; heading?: number }
+): { lon: number; lat: number; height: number; heading: number } | null {
+  const bs = tileset?.boundingSphere;
+  if (!bs?.center) return null;
+  const c = Cesium.Cartographic.fromCartesian(
+    bs.center,
+    Cesium.Ellipsoid.WGS84
+  );
+  if (!c) return null;
+  const lon = Cesium.Math.toDegrees(c.longitude);
+  const lat = Cesium.Math.toDegrees(c.latitude);
+  const band = tilesetHeightBand(Cesium, tileset);
+  const seedH = band?.mid ?? c.height ?? 0;
+  const height = sampleSurfaceHeightEnu(Cesium, viewer, lon, lat, seedH, {
+    exclude: opts?.exclude ?? [],
+    tileset,
+    maxClimbM: 80,
+    maxDropM: 80,
+  });
+  return {
+    lon,
+    lat,
+    height,
+    heading: opts?.heading ?? 0,
+  };
+}
