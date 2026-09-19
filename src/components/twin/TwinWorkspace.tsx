@@ -465,7 +465,7 @@ export function TwinWorkspace() {
                 className={cn(
                   "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs transition",
                   panel === id
-                    ? "bg-teal-500/15 text-teal-100"
+                    ? "bg-white/10 text-white"
                     : "text-slate-400 hover:text-slate-200"
                 )}
               >
