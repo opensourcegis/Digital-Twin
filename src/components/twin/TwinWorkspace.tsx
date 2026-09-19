@@ -17,7 +17,6 @@ import {
   Undo2,
   Trash2,
   Play,
-  Pause,
   MapPin,
   Waypoints,
   Navigation,
@@ -116,7 +115,7 @@ export function TwinWorkspace() {
   const [tilesetUrl, setTilesetUrl] = useState("");
   const [activeScene, setActiveScene] = useState<"demo" | "tiles">("demo");
   const [robot, setRobot] = useState<RobotState>({
-    playing: true,
+    playing: false,
     progress: 0,
     speed: 1,
   });
@@ -166,19 +165,14 @@ export function TwinWorkspace() {
         setPanel(settings.shell.defaultPanel);
         defaultPanelApplied.current = true;
       }
-      if (
-        !walkthroughDefaultApplied.current &&
-        settings.simulation.defaultWalkthroughMode !== "off"
-      ) {
-        const mode = settings.simulation.defaultWalkthroughMode;
+      if (!walkthroughDefaultApplied.current) {
+        const mode =
+          settings.simulation.defaultWalkthroughMode === "walk"
+            ? "walk"
+            : settings.simulation.defaultWalkthroughMode === "off"
+              ? "off"
+              : "walk"; // chase/cab → WASD walk
         twin.setWalkthroughMode(mode);
-        if (mode === "first" || mode === "third") {
-          setRobot((r) => ({
-            ...r,
-            playing: true,
-            speed: Math.max(r.speed, 1),
-          }));
-        }
         walkthroughDefaultApplied.current = true;
       }
     },
@@ -322,46 +316,30 @@ export function TwinWorkspace() {
 
   const handleWalkthroughChange = useCallback(
     (mode: WalkthroughMode) => {
-      twin.setWalkthroughMode(mode);
-      if (mode === "walk") {
+      // Only Orbit + Walk — map legacy chase/cab to walk
+      const next: WalkthroughMode =
+        mode === "first" || mode === "third" ? "walk" : mode;
+      twin.setWalkthroughMode(next);
+      if (next === "walk") {
         setRobot((r) => ({ ...r, playing: false }));
-        return;
-      }
-      if (mode === "first" || mode === "third") {
-        // Chase/Cab must roam — auto-start free-roam so the robot moves
-        setRobot((r) => ({
-          ...r,
-          playing: true,
-          speed: Math.max(r.speed, 1),
-        }));
         setPanel("sim");
         return;
       }
-      // Orbit — leave playing as-is so user can keep roaming without follow cam
     },
     [twin]
   );
 
   const handleWalkActive = useCallback(() => {
+    // WASD is driving — ensure free-roam stays off
     setRobot((r) => (r.playing ? { ...r, playing: false } : r));
   }, []);
 
   const togglePatrol = useCallback(() => {
-    const starting = !robot.playing;
-    if (starting && twin.walkthroughMode === "off") {
-      twin.setWalkthroughMode("third");
-    }
-    const criticalNearby = twin.alerts.some(
-      (a) => a.severity === "critical" && !a.acknowledged
-    );
-    const slow = sim.alertSlowdownFactor;
-    setRobot((r) => ({
-      ...r,
-      playing: starting,
-      speed: starting && criticalNearby ? slow : r.speed,
-    }));
+    // Free-roam removed — Walk (WASD) is the only robot drive mode
+    twin.setWalkthroughMode("walk");
+    setRobot((r) => ({ ...r, playing: false }));
     setPanel("sim");
-  }, [robot.playing, twin, sim.alertSlowdownFactor]);
+  }, [twin]);
 
   const tools = useMemo(() => {
     const all = [
@@ -586,14 +564,10 @@ export function TwinWorkspace() {
       </header>
       )}
 
-      {twin.walkthroughMode !== "off" && (
+      {twin.walkthroughMode === "walk" && (
         <div className="pointer-events-none absolute left-1/2 top-16 z-20 -translate-x-1/2 animate-in-fade">
           <div className="glass-panel rounded-full px-3 py-1.5 text-[11px] text-slate-200">
-            {twin.walkthroughMode === "walk"
-              ? "Walk · WASD · drag look"
-              : twin.walkthroughMode === "first"
-                ? `Cab · ${sim.robotName}${robot.playing ? " · moving" : ""}`
-                : `Chase · ${sim.robotName}${robot.playing ? " · moving" : ""}`}
+            Walk · {sim.robotName} · WASD move · drag look
           </div>
         </div>
       )}
@@ -695,9 +669,11 @@ export function TwinWorkspace() {
                 {panel === "sim" && (
                   <>
                     <WalkthroughControls
-                      mode={twin.walkthroughMode}
+                      mode={
+                        twin.walkthroughMode === "walk" ? "walk" : "off"
+                      }
                       onChange={handleWalkthroughChange}
-                      robotPlaying={robot.playing}
+                      robotPlaying={false}
                     />
                     <div className="rounded-lg border border-amber-400/20 bg-amber-400/[0.06] p-3">
                       <div className="flex items-center justify-between gap-2">
@@ -711,28 +687,33 @@ export function TwinWorkspace() {
                           <span
                             className={cn(
                               "live-dot",
-                              !robot.playing && "live-dot--off"
+                              twin.walkthroughMode !== "walk" && "live-dot--off"
                             )}
                           />
-                          {robot.playing ? "Moving" : "Paused"}
+                          {twin.walkthroughMode === "walk"
+                            ? "WASD ready"
+                            : "Orbit"}
                         </span>
                       </div>
                       <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-                        Continuous free-roam — like a game character on campus.
+                        Game walk — WASD / arrows move the robot. Drag on the
+                        map to look. Stays on campus.
                       </p>
                     </div>
                     <div className="flex gap-2">
                       <Button
                         className="flex-1"
-                        variant={robot.playing ? "secondary" : "default"}
+                        variant={
+                          twin.walkthroughMode === "walk"
+                            ? "secondary"
+                            : "default"
+                        }
                         onClick={togglePatrol}
                       >
-                        {robot.playing ? (
-                          <Pause className="h-4 w-4" />
-                        ) : (
-                          <Play className="h-4 w-4" />
-                        )}
-                        {robot.playing ? "Pause" : "Resume"}
+                        <Play className="h-4 w-4" />
+                        {twin.walkthroughMode === "walk"
+                          ? "Walking"
+                          : "Enter walk"}
                       </Button>
                       <Button
                         variant="secondary"
@@ -742,31 +723,12 @@ export function TwinWorkspace() {
                             playing: false,
                             progress: 0,
                           }));
-                          queueMicrotask(() =>
-                            setRobot((r) => ({ ...r, playing: true }))
-                          );
+                          twin.setWalkthroughMode("walk");
                         }}
                       >
                         Reset
                       </Button>
                     </div>
-                    <label className="block text-xs text-slate-400">
-                      Move speed
-                      <input
-                        type="range"
-                        min={0.35}
-                        max={2.5}
-                        step={0.05}
-                        value={robot.speed}
-                        onChange={(e) =>
-                          setRobot((r) => ({
-                            ...r,
-                            speed: Number(e.target.value),
-                          }))
-                        }
-                        className="mt-2 w-full accent-teal-400"
-                      />
-                    </label>
                     <div className="flex items-center justify-between rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2">
                       <div className="flex items-center gap-2 text-xs text-slate-300">
                         <Lightbulb
