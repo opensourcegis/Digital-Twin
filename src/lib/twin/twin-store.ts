@@ -385,14 +385,26 @@ export class TwinStore {
     }
   }
 
-  private updateRobotTelemetry(_now: number) {
+  private async updateRobotTelemetry(_now: number) {
     const criticalNear = this.alerts.filter(
       (a) => a.severity === "critical" && !a.acknowledged
     ).length;
+    let drain = 0.05;
+    let charge = 0.02;
+    try {
+      const { getPlatformSettings } = await import(
+        "@/lib/platform/settings-store"
+      );
+      const settings = await getPlatformSettings();
+      drain = settings.simulation.batteryDrainPerTick;
+      charge = settings.simulation.batteryChargePerTick;
+    } catch {
+      /* defaults */
+    }
     if (criticalNear > 0) {
-      this.robotBattery = Math.max(15, this.robotBattery - 0.05);
+      this.robotBattery = Math.max(15, this.robotBattery - drain);
     } else {
-      this.robotBattery = Math.min(100, this.robotBattery + 0.02);
+      this.robotBattery = Math.min(100, this.robotBattery + charge);
     }
   }
 

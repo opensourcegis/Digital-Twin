@@ -1,0 +1,55 @@
+{
+  "simulation": {
+    "robotName": "ATLAS-01",
+    "baseSpeedMps": 2.8,
+    "turnRateRad": 1.1,
+    "goalTimeoutSec": 28,
+    "alertSlowdownFactor": 0.5,
+    "batteryDrainPerTick": 0.05,
+    "batteryChargePerTick": 0.02,
+    "defaultWalkthroughMode": "off",
+    "spawn": {
+      "lon": -122.1339,
+      "lat": 37.42205,
+      "height": 0.15,
+      "headingDeg": 35
+    },
+    "bounds": {
+      "minLon": -122.1362,
+      "maxLon": -122.1318,
+      "minLat": 37.4212,
+      "maxLat": 37.4236
+    },
+    "seedPoles": true,
+    "defaultPoleCount": 4
+  },
+  "informatics": {
+    "showWeather": true,
+    "showBms": true,
+    "showAlerts": true,
+    "showRobotStatus": true,
+    "showTimeSlider": true,
+    "bmsLimit": 4,
+    "alertLimit": 12,
+    "weatherPollMinutes": 10,
+    "copTitle": "Common operating picture"
+  },
+  "gis": {
+    "enabledTools": [
+      "measure-distance",
+      "measure-area",
+      "height-profile",
+      "identify",
+      "viewshed",
+      "place-pole",
+      "draw-poles"
+    ],
+    "measureUnits": "metric",
+    "viewshedRadiusM": 180,
+    "viewshedRays": 48,
+    "viewshedObserverHeightM": 2,
+    "poleSpacingM": 35,
+    "heightSampleCount": 24
+  },
+  "updatedAt": "2026-09-19T00:00:00.000Z"
+}

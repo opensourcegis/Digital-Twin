@@ -8,8 +8,15 @@ export interface RobotPose {
   heading: number;
 }
 
-/** Campus walk / roam bounds (EPSG:4326) */
-export const ROBOT_BOUNDS = {
+export interface WanderBounds {
+  minLon: number;
+  maxLon: number;
+  minLat: number;
+  maxLat: number;
+}
+
+/** Campus walk / roam bounds (EPSG:4326) — defaults; prefer platform settings. */
+export const ROBOT_BOUNDS: WanderBounds = {
   minLon: -122.1362,
   maxLon: -122.1318,
   minLat: 37.4212,
@@ -34,14 +41,26 @@ function metersToLonLat(eastM: number, northM: number, lat: number) {
   return { dLon: eastM / mPerDegLon, dLat: northM / mPerDegLat };
 }
 
+export interface WanderOptions {
+  bounds?: WanderBounds;
+  turnRateRad?: number;
+  goalTimeoutSec?: number;
+  seed?: number;
+}
+
 /**
- * Autonomous campus roam — steers toward a soft random goal, no fixed route.
+ * Autonomous roam — steers toward a soft random goal, no fixed route.
  * Goals are re-picked when reached or after a timeout.
  */
-export function createWanderController(seed = 1) {
+export function createWanderController(options: WanderOptions | number = {}) {
+  const opts: WanderOptions =
+    typeof options === "number" ? { seed: options } : options;
+  const bounds = opts.bounds ?? ROBOT_BOUNDS;
+  const turnRate = opts.turnRateRad ?? 1.1;
+  const goalTimeout = opts.goalTimeoutSec ?? 28;
   let goal: { lon: number; lat: number } | null = null;
   let goalAge = 0;
-  let rng = seed;
+  let rng = opts.seed ?? 1;
 
   const nextRand = () => {
     rng = (rng * 1664525 + 1013904223) >>> 0;
@@ -50,12 +69,8 @@ export function createWanderController(seed = 1) {
 
   const pickGoal = () => {
     goal = {
-      lon:
-        ROBOT_BOUNDS.minLon +
-        nextRand() * (ROBOT_BOUNDS.maxLon - ROBOT_BOUNDS.minLon),
-      lat:
-        ROBOT_BOUNDS.minLat +
-        nextRand() * (ROBOT_BOUNDS.maxLat - ROBOT_BOUNDS.minLat),
+      lon: bounds.minLon + nextRand() * (bounds.maxLon - bounds.minLon),
+      lat: bounds.minLat + nextRand() * (bounds.maxLat - bounds.minLat),
     };
     goalAge = 0;
   };
@@ -71,11 +86,9 @@ export function createWanderController(seed = 1) {
       const dLat = goal!.lat - pose.lat;
       const targetHeading = Math.atan2(dLon, dLat);
 
-      // Steer smoothly toward goal
       let dh = targetHeading - pose.heading;
       while (dh > Math.PI) dh -= Math.PI * 2;
       while (dh < -Math.PI) dh += Math.PI * 2;
-      const turnRate = 1.1; // rad/s
       const heading =
         pose.heading + clamp(dh, -turnRate * dt, turnRate * dt);
 
@@ -84,7 +97,7 @@ export function createWanderController(seed = 1) {
         dLat * 110540
       );
 
-      if (distM < 4 || goalAge > 28) pickGoal();
+      if (distM < 4 || goalAge > goalTimeout) pickGoal();
 
       const move = speedMps * dt;
       const { dLon: e, dLat: n } = metersToLonLat(
@@ -94,8 +107,8 @@ export function createWanderController(seed = 1) {
       );
 
       return {
-        lon: clamp(pose.lon + e, ROBOT_BOUNDS.minLon, ROBOT_BOUNDS.maxLon),
-        lat: clamp(pose.lat + n, ROBOT_BOUNDS.minLat, ROBOT_BOUNDS.maxLat),
+        lon: clamp(pose.lon + e, bounds.minLon, bounds.maxLon),
+        lat: clamp(pose.lat + n, bounds.minLat, bounds.maxLat),
         height: pose.height,
         heading,
       };
@@ -108,4 +121,18 @@ export function createWanderController(seed = 1) {
 
 export function poseToCartesian(Cesium: CesiumNS, pose: RobotPose) {
   return Cesium.Cartesian3.fromDegrees(pose.lon, pose.lat, pose.height);
+}
+
+export function spawnFromSettings(spawn: {
+  lon: number;
+  lat: number;
+  height: number;
+  headingDeg: number;
+}): RobotPose {
+  return {
+    lon: spawn.lon,
+    lat: spawn.lat,
+    height: spawn.height,
+    heading: (spawn.headingDeg * Math.PI) / 180,
+  };
 }

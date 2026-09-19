@@ -58,6 +58,12 @@ import type {
 import type { WalkthroughMode } from "@/lib/twin/types";
 import { zoomCamera } from "@/lib/twin/camera-controls";
 import { weatherWetness } from "@/lib/weather/apply-weather";
+import type { PlatformSettings } from "@/lib/platform/types";
+import {
+  DEFAULT_GIS,
+  DEFAULT_INFORMATICS,
+  DEFAULT_SIMULATION,
+} from "@/lib/platform/types";
 
 type DockPanel = "live" | "sim" | "tiles" | "layers" | "tools" | null;
 
@@ -104,10 +110,19 @@ export function TwinWorkspace() {
     speed: 1,
   });
   const [panel, setPanel] = useState<DockPanel>(null);
+  const [platform, setPlatform] = useState<PlatformSettings | null>(null);
 
   const twin = useTwinPlatform(robot.progress);
-  const liveWeather = useWeather(true);
+  const weatherPollMs =
+    (platform?.informatics.weatherPollMinutes ??
+      DEFAULT_INFORMATICS.weatherPollMinutes) *
+    60 *
+    1000;
+  const liveWeather = useWeather(true, weatherPollMs);
   const wetness = weatherWetness(liveWeather.weather);
+  const sim = platform?.simulation ?? DEFAULT_SIMULATION;
+  const informatics = platform?.informatics ?? DEFAULT_INFORMATICS;
+  const gis = platform?.gis ?? DEFAULT_GIS;
 
   useEffect(() => {
     if (!liveWeather.followDayNight) return;
@@ -139,6 +154,24 @@ export function TwinWorkspace() {
       .catch((err) => {
         console.warn("Config fetch failed, keeping demo defaults", err);
       });
+
+    fetch("/api/platform-settings")
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`platform ${r.status}`);
+        return r.json();
+      })
+      .then((data: { settings: PlatformSettings }) => {
+        setPlatform(data.settings);
+        if (data.settings.simulation.defaultWalkthroughMode !== "off") {
+          twin.setWalkthroughMode(
+            data.settings.simulation.defaultWalkthroughMode
+          );
+        }
+      })
+      .catch((err) => {
+        console.warn("Platform settings unavailable", err);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // When admin uploads/changes the platform tileset URL, pick it up
@@ -261,28 +294,32 @@ export function TwinWorkspace() {
     const criticalNearby = twin.alerts.some(
       (a) => a.severity === "critical" && !a.acknowledged
     );
+    const slow = sim.alertSlowdownFactor;
     setRobot((r) => ({
       ...r,
       playing: starting,
-      speed: starting && criticalNearby ? 0.5 : r.speed,
+      speed: starting && criticalNearby ? slow : r.speed,
     }));
     setPanel("sim");
-  }, [robot.playing, twin]);
+  }, [robot.playing, twin, sim.alertSlowdownFactor]);
 
-  const tools = useMemo(
-    () =>
-      [
-        { id: "navigate" as const, label: "Navigate", icon: Navigation },
-        { id: "measure-distance" as const, label: "Distance", icon: Ruler },
-        { id: "measure-area" as const, label: "Area", icon: Pentagon },
-        { id: "height-profile" as const, label: "Height", icon: Mountain },
-        { id: "identify" as const, label: "Identify", icon: Crosshair },
-        { id: "viewshed" as const, label: "Viewshed", icon: Eye },
-        { id: "place-pole" as const, label: "Place pole", icon: Zap },
-        { id: "draw-poles" as const, label: "Draw poles", icon: Waypoints },
-      ] as const,
-    []
-  );
+  const tools = useMemo(() => {
+    const all = [
+      { id: "navigate" as const, label: "Navigate", icon: Navigation },
+      { id: "measure-distance" as const, label: "Distance", icon: Ruler },
+      { id: "measure-area" as const, label: "Area", icon: Pentagon },
+      { id: "height-profile" as const, label: "Height", icon: Mountain },
+      { id: "identify" as const, label: "Identify", icon: Crosshair },
+      { id: "viewshed" as const, label: "Viewshed", icon: Eye },
+      { id: "place-pole" as const, label: "Place pole", icon: Zap },
+      { id: "draw-poles" as const, label: "Draw poles", icon: Waypoints },
+    ] as const;
+    return all.filter(
+      (t) =>
+        t.id === "navigate" ||
+        gis.enabledTools.includes(t.id as (typeof gis.enabledTools)[number])
+    );
+  }, [gis.enabledTools]);
 
   const criticalCount = twin.alerts.filter(
     (a) => a.severity === "critical" && !a.acknowledged
@@ -329,6 +366,7 @@ export function TwinWorkspace() {
         layers={layerCatalog.layers}
         timeOfDay={timeOfDay}
         weather={liveWeather.weather}
+        platformSettings={platform}
         poles={poles}
         poleLightsOn={poleLightsOn}
         robot={robot}
@@ -424,8 +462,8 @@ export function TwinWorkspace() {
             {twin.walkthroughMode === "walk"
               ? "Walk · WASD · drag look"
               : twin.walkthroughMode === "first"
-                ? `Cab · ATLAS-01${robot.playing ? " · roaming" : ""}`
-                : `Chase · ATLAS-01${robot.playing ? " · roaming" : ""}`}
+                ? `Cab · ${sim.robotName}${robot.playing ? " · roaming" : ""}`
+                : `Chase · ${sim.robotName}${robot.playing ? " · roaming" : ""}`}
           </div>
         </div>
       )}
@@ -482,18 +520,18 @@ export function TwinWorkspace() {
                 {panel === "live" && (
                   <>
                     <OperationsPanel
-                      readings={twin.readings}
                       alerts={twin.alerts}
                       bms={twin.bms}
-                      symbology={twin.symbology}
                       connected={twin.connected}
                       robotBattery={twin.robotTelemetry?.batteryPct}
                       robotAlerts={twin.robotTelemetry?.activeAlerts}
                       weather={liveWeather.weather}
                       weatherError={liveWeather.error}
+                      informatics={informatics}
                       onAcknowledge={twin.acknowledgeAlert}
                       onSelectAsset={twin.selectAsset}
                     />
+                    {informatics.showTimeSlider && (
                     <div className="rounded-lg border border-white/5 bg-white/[0.03] p-2">
                       <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-slate-500">
                         Time travel
@@ -504,12 +542,14 @@ export function TwinWorkspace() {
                         onChange={twin.setSimulationTime}
                       />
                       <p className="mt-2 text-[10px] text-slate-500">
-                        Weather refreshes every 10 minutes
+                        Weather refreshes every{" "}
+                        {informatics.weatherPollMinutes} minutes
                         {liveWeather.updatedAt
                           ? ` · last ${new Date(liveWeather.updatedAt).toLocaleTimeString()}`
                           : ""}
                       </p>
                     </div>
+                    )}
                   </>
                 )}
 
@@ -525,7 +565,7 @@ export function TwinWorkspace() {
                         <div className="flex items-center gap-2">
                           <MapPin className="h-4 w-4 text-amber-300" />
                           <p className="text-sm font-medium text-amber-50">
-                            ATLAS-01
+                            {sim.robotName}
                           </p>
                         </div>
                         <span className="hud-chip">

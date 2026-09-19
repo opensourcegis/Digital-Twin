@@ -42,6 +42,7 @@ import {
   createWanderController,
   poseToCartesian,
   ROBOT_SPAWN,
+  spawnFromSettings,
   type RobotPose,
 } from "@/lib/twin/robot-sim";
 import {
@@ -54,6 +55,8 @@ import type { Alert, WalkthroughMode } from "@/lib/twin/types";
 import { TWIN_LOOK, buildingFinish } from "@/lib/twin/visual-theme";
 import type { SceneWeather } from "@/lib/weather/types";
 import { applyWeatherToScene } from "@/lib/weather/apply-weather";
+import type { PlatformSettings } from "@/lib/platform/types";
+import { DEFAULT_GIS, DEFAULT_SIMULATION } from "@/lib/platform/types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type CesiumNS = any;
@@ -64,6 +67,7 @@ interface ViewerProps {
   layers: ViewerLayer[];
   timeOfDay: TimeOfDay;
   weather?: SceneWeather | null;
+  platformSettings?: PlatformSettings | null;
   poles: PlacedPole[];
   poleLightsOn: boolean;
   robot: RobotState;
@@ -129,6 +133,7 @@ export function CesiumViewer({
   layers,
   timeOfDay,
   weather = null,
+  platformSettings = null,
   poles,
   poleLightsOn,
   robot,
@@ -170,6 +175,7 @@ export function CesiumViewer({
   const toolRef = useRef(tool);
   const poleLightsRef = useRef(poleLightsOn);
   const timeOfDayRef = useRef(timeOfDay);
+  const platformSettingsRef = useRef(platformSettings);
   const onPolesChangeRef = useRef(onPolesChange);
   const onMeasureRef = useRef(onMeasure);
   const onStatusRef = useRef(onStatus);
@@ -193,6 +199,7 @@ export function CesiumViewer({
   toolRef.current = tool;
   poleLightsRef.current = poleLightsOn;
   timeOfDayRef.current = timeOfDay;
+  platformSettingsRef.current = platformSettings;
   onPolesChangeRef.current = onPolesChange;
   onMeasureRef.current = onMeasure;
   onStatusRef.current = onStatus;
@@ -569,9 +576,16 @@ export function CesiumViewer({
       onPolesChangeRef.current(seed);
 
       try {
-        robotPoseRef.current = { ...ROBOT_SPAWN };
-        wanderRef.current = createWanderController(7);
-        robotHandle.current = createAtlasRobot(Cesium, viewer, ROBOT_SPAWN);
+        const sim = platformSettingsRef.current?.simulation ?? DEFAULT_SIMULATION;
+        const spawn = spawnFromSettings(sim.spawn);
+        robotPoseRef.current = { ...spawn };
+        wanderRef.current = createWanderController({
+          seed: 7,
+          bounds: sim.bounds,
+          turnRateRad: sim.turnRateRad,
+          goalTimeoutSec: sim.goalTimeoutSec,
+        });
+        robotHandle.current = createAtlasRobot(Cesium, viewer, spawn);
       } catch (err) {
         console.warn(err);
         onStatusRef.current("Robot unavailable");
@@ -629,11 +643,13 @@ export function CesiumViewer({
                 },
               })
             );
-            onMeasureRef.current({
+            const units =
+            platformSettingsRef.current?.gis.measureUnits ?? "metric";
+          onMeasureRef.current({
               kind: "distance",
               label: "Distance",
-              value: formatMeters(pathLength(measurePoints.current)),
-              detail: `Last segment ${formatMeters(dist)}`,
+              value: formatMeters(pathLength(measurePoints.current), units),
+              detail: `Last segment ${formatMeters(dist, units)}`,
             });
           }
           return;
@@ -677,7 +693,8 @@ export function CesiumViewer({
               kind: "area",
               label: "Area",
               value: formatSquareMeters(
-                polygonArea(Cesium, measurePoints.current)
+                polygonArea(Cesium, measurePoints.current),
+                platformSettingsRef.current?.gis.measureUnits ?? "metric"
               ),
               detail: `${measurePoints.current.length} vertices`,
             });
@@ -705,13 +722,15 @@ export function CesiumViewer({
               })
             );
           }
+          const units =
+            platformSettingsRef.current?.gis.measureUnits ?? "metric";
           const min = Math.min(...heights);
           const max = Math.max(...heights);
           onMeasureRef.current({
             kind: "height",
             label: "Elevation profile",
-            value: `${formatMeters(carto.height)} here`,
-            detail: `Range ${formatMeters(min)} → ${formatMeters(max)} · Δ ${formatMeters(max - min)}`,
+            value: `${formatMeters(carto.height, units)} here`,
+            detail: `Range ${formatMeters(min, units)} → ${formatMeters(max, units)} · Δ ${formatMeters(max - min, units)}`,
           });
           return;
         }
@@ -758,11 +777,12 @@ export function CesiumViewer({
 
         if (t === "viewshed") {
           clearMeasureGraphics();
+          const gis = platformSettingsRef.current?.gis ?? DEFAULT_GIS;
           const carto = Cesium.Cartographic.fromCartesian(cartesian);
           const origin = Cesium.Cartesian3.fromDegrees(
             Cesium.Math.toDegrees(carto.longitude),
             Cesium.Math.toDegrees(carto.latitude),
-            (carto.height || 0) + 12
+            (carto.height || 0) + gis.viewshedObserverHeightM
           );
           trackMeasure(
             viewer.entities.add({
@@ -781,8 +801,8 @@ export function CesiumViewer({
               },
             })
           );
-          const radius = 180;
-          const rays = 48;
+          const radius = gis.viewshedRadiusM;
+          const rays = gis.viewshedRays;
           let visible = 0;
           for (let i = 0; i < rays; i++) {
             const bearing = (i / rays) * Math.PI * 2;
@@ -835,7 +855,9 @@ export function CesiumViewer({
           drawLinePoints.current.length >= 2
         ) {
           const pts = drawLinePoints.current;
-          const spacing = 35;
+          const spacing =
+            platformSettingsRef.current?.gis.poleSpacingM ??
+            DEFAULT_GIS.poleSpacingM;
           const newPoles: PlacedPole[] = [];
           for (let i = 0; i < pts.length - 1; i++) {
             const a = pts[i];
@@ -1190,7 +1212,9 @@ export function CesiumViewer({
       if (!robotPlayingRef.current) return;
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      const speedMps = 2.8 * robotSpeedRef.current;
+      const speedMps =
+        (platformSettingsRef.current?.simulation.baseSpeedMps ??
+          DEFAULT_SIMULATION.baseSpeedMps) * robotSpeedRef.current;
       robotPoseRef.current = wanderRef.current.step(
         robotPoseRef.current,
         dt,
@@ -1217,7 +1241,15 @@ export function CesiumViewer({
   useEffect(() => {
     if (robot.playing) return;
     if (robot.progress > 0.001) return;
-    robotPoseRef.current = { ...ROBOT_SPAWN };
+    const sim = platformSettingsRef.current?.simulation ?? DEFAULT_SIMULATION;
+    robotPoseRef.current = { ...spawnFromSettings(sim.spawn) };
+    wanderRef.current = createWanderController({
+      seed: 7,
+      bounds: sim.bounds,
+      turnRateRad: sim.turnRateRad,
+      goalTimeoutSec: sim.goalTimeoutSec,
+    });
+    syncRobotPose(false);
     wanderRef.current.reset();
     syncRobotPose(true);
   }, [robot.progress, robot.playing, syncRobotPose]);

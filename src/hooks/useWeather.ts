@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SceneWeather, WeatherApiResponse } from "@/lib/weather/types";
 
-const POLL_MS = 10 * 60 * 1000;
+const DEFAULT_POLL_MS = 10 * 60 * 1000;
 
-export function useWeather(enabled = true) {
+export function useWeather(enabled = true, pollMs = DEFAULT_POLL_MS) {
   const [weather, setWeather] = useState<SceneWeather | null>(null);
   const [apiUrl, setApiUrl] = useState<string | null>(null);
   const [followDayNight, setFollowDayNight] = useState(true);
@@ -44,12 +44,13 @@ export function useWeather(enabled = true) {
   useEffect(() => {
     if (!enabled) return;
     refresh();
-    const id = window.setInterval(refresh, POLL_MS);
+    const interval = Math.max(60_000, pollMs);
+    const id = window.setInterval(refresh, interval);
     return () => {
       window.clearInterval(id);
       abortRef.current?.abort();
     };
-  }, [enabled, refresh]);
+  }, [enabled, refresh, pollMs]);
 
   return {
     weather,
