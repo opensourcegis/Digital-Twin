@@ -526,9 +526,17 @@ export function CesiumViewer({
 
       viewer.scene.globe.depthTestAgainstTerrain = false;
       viewer.scene.requestRenderMode = true;
-      viewer.scene.maximumRenderTimeChange = Infinity;
+      // Allow interactive wheel/pinch to keep rendering between frames
+      viewer.scene.maximumRenderTimeChange = 1 / 30;
       if (viewer.scene.postProcessStages?.fxaa) {
         viewer.scene.postProcessStages.fxaa.enabled = true;
+      }
+
+      // Ensure canvas can receive gestures
+      const canvas = viewer.canvas ?? viewer.scene.canvas;
+      if (canvas) {
+        canvas.style.touchAction = "none";
+        canvas.tabIndex = 0;
       }
 
       applyTimeOfDay(Cesium, viewer, "day");
@@ -548,7 +556,7 @@ export function CesiumViewer({
       });
 
       viewerRef.current = viewer;
-      onStatusRef.current("Loading campus twin…");
+      onStatusRef.current("Loading twin…");
       await loadDemoLayers(Cesium, viewer);
       if (destroyed) return;
 
@@ -893,7 +901,7 @@ export function CesiumViewer({
         viewer,
         () => poleLightsRef.current && timeOfDayRef.current === "night"
       );
-      onStatusRef.current("Campus twin ready");
+      onStatusRef.current("Twin ready");
       viewer.scene.requestRender();
     }
 

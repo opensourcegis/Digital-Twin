@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SceneWeather, WeatherApiResponse } from "@/lib/weather/types";
 
-const POLL_MS = 60_000;
+const POLL_MS = 10 * 60 * 1000;
 
 export function useWeather(enabled = true) {
   const [weather, setWeather] = useState<SceneWeather | null>(null);

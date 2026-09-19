@@ -73,9 +73,9 @@ export function WalkthroughControls({
         {mode === "walk"
           ? "Walk the campus with WASD or arrow keys. Drag to look."
           : mode === "off"
-            ? "Orbit freely, or arm Chase/Cab then start ATLAS-01 patrol."
+            ? "Orbit freely, or arm Chase/Cab then start ATLAS-01 simulation."
             : robotPlaying
-              ? "Camera locked to ATLAS-01 on free campus roam."
+              ? "Camera locked to ATLAS-01 on free roam."
               : "Press Start simulation to begin camera follow."}
       </p>
       <div className="mt-3 grid grid-cols-4 gap-1">

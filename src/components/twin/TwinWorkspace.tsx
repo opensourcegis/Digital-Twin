@@ -20,13 +20,15 @@ import {
   Pause,
   MapPin,
   Waypoints,
-  Link2,
   Navigation,
   FlaskConical,
   Activity,
   Settings,
   Plus,
   Minus,
+  X,
+  Wrench,
+  Box,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -57,6 +59,8 @@ import type { WalkthroughMode } from "@/lib/twin/types";
 import { zoomCamera } from "@/lib/twin/camera-controls";
 import { weatherWetness } from "@/lib/weather/apply-weather";
 
+type DockPanel = "live" | "sim" | "tiles" | "layers" | "tools" | null;
+
 const CesiumViewer = dynamic(
   () =>
     import("@/components/twin/CesiumViewer").then((m) => m.CesiumViewer),
@@ -85,7 +89,7 @@ export function TwinWorkspace() {
     sandcastleTilesetUrl: SANDCASTLE_TEST_TILESET_URL,
   });
   const [tool, setTool] = useState<ActiveTool>("navigate");
-  const layerCatalog = useLayerCatalog();
+  const layerCatalog = useLayerCatalog({ pollMs: 30_000 });
   const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>("day");
   const [poles, setPoles] = useState<PlacedPole[]>([]);
   const [poleHistory, setPoleHistory] = useState<PlacedPole[][]>([]);
@@ -93,15 +97,13 @@ export function TwinWorkspace() {
   const [measure, setMeasure] = useState<MeasureResult | null>(null);
   const [status, setStatus] = useState("Booting…");
   const [tilesetUrl, setTilesetUrl] = useState("");
-  const [activeScene, setActiveScene] = useState<"campus" | "sandcastle">(
-    "campus"
-  );
+  const [activeScene, setActiveScene] = useState<"demo" | "tiles">("demo");
   const [robot, setRobot] = useState<RobotState>({
     playing: false,
     progress: 0,
     speed: 1,
   });
-  const [panel, setPanel] = useState<"layers" | "sim" | "ops" | "connect">("ops");
+  const [panel, setPanel] = useState<DockPanel>(null);
 
   const twin = useTwinPlatform(robot.progress);
   const liveWeather = useWeather(true);
@@ -129,25 +131,69 @@ export function TwinWorkspace() {
           sandcastleTilesetUrl:
             data.sandcastleTilesetUrl || SANDCASTLE_TEST_TILESET_URL,
         });
-        if (data.defaultTilesetUrl) setTilesetUrl(data.defaultTilesetUrl);
+        if (data.defaultTilesetUrl) {
+          setTilesetUrl(data.defaultTilesetUrl);
+          setActiveScene("tiles");
+        }
       })
       .catch((err) => {
         console.warn("Config fetch failed, keeping demo defaults", err);
       });
   }, []);
 
-  const loadSandcastleTest = () => {
-    const url = config.sandcastleTilesetUrl || SANDCASTLE_TEST_TILESET_URL;
-    setActiveScene("sandcastle");
-    setPanel("connect");
-    setTilesetUrl(url);
-    setStatus("Loading Sandcastle test tileset…");
+  // When admin uploads/changes the platform tileset URL, pick it up
+  const platformDataSource = layerCatalog.layers.find(
+    (l) => l.builtInKey === "tileset" || l.category === "tiles-3d"
+  )?.dataSource;
+  useEffect(() => {
+    if (!platformDataSource) return;
+    setTilesetUrl((prev) => {
+      if (prev === platformDataSource) return prev;
+      // Auto-load new admin uploads; don't override an in-progress custom paste
+      // unless previous was empty or also a platform/sandcastle path
+      if (
+        !prev ||
+        prev.startsWith("/uploads/tilesets/") ||
+        prev.includes("sandcastle-tileset")
+      ) {
+        setActiveScene("tiles");
+        return platformDataSource;
+      }
+      return prev;
+    });
+  }, [platformDataSource]);
+
+  const togglePanel = (id: Exclude<DockPanel, null>) => {
+    setPanel((p) => (p === id ? null : id));
   };
 
-  const loadCampusDemo = () => {
-    setActiveScene("campus");
+  const loadSandcastleTest = () => {
+    const url = config.sandcastleTilesetUrl || SANDCASTLE_TEST_TILESET_URL;
+    setActiveScene("tiles");
+    setPanel("tiles");
+    setTilesetUrl(url);
+    setStatus("Loading sample tileset…");
+  };
+
+  const loadDemoScene = () => {
+    setActiveScene("demo");
     setTilesetUrl("");
-    setStatus("Campus twin ready");
+    setStatus("Demo twin ready");
+  };
+
+  const loadPlatformTileset = () => {
+    const tilesLayer = layerCatalog.layers.find(
+      (l) => l.builtInKey === "tileset" || l.category === "tiles-3d"
+    );
+    if (tilesLayer?.dataSource) {
+      setTilesetUrl(tilesLayer.dataSource);
+      setActiveScene("tiles");
+      setStatus("Loading platform tileset…");
+      layerCatalog.patchLayer(tilesLayer.configId, { visible: true });
+    } else {
+      setStatus("No platform tileset — upload one in Admin");
+      setPanel("tiles");
+    }
   };
 
   const updatePoles = useCallback((next: PlacedPole[]) => {
@@ -242,12 +288,38 @@ export function TwinWorkspace() {
     (a) => a.severity === "critical" && !a.acknowledged
   ).length;
 
+  const platformTilesUrl =
+    layerCatalog.layers.find(
+      (l) => l.builtInKey === "tileset" || l.category === "tiles-3d"
+    )?.dataSource ?? null;
+
+  const dockItems = [
+    { id: "live" as const, label: "Live", icon: Activity },
+    { id: "sim" as const, label: "Sim", icon: Bot },
+    { id: "tiles" as const, label: "Tiles", icon: Box },
+    { id: "layers" as const, label: "Layers", icon: Layers },
+    { id: "tools" as const, label: "Tools", icon: Wrench },
+  ];
+
+  const panelTitle: Record<Exclude<DockPanel, null>, string> = {
+    live: "Live data",
+    sim: "Simulation",
+    tiles: "3D Tiles",
+    layers: "Layers",
+    tools: "Tools",
+  };
+
   return (
     <div className="relative h-[100dvh] w-full overflow-hidden bg-[#071018] text-slate-100">
       <div className="pointer-events-none absolute inset-0 z-0 twin-atmosphere" />
       <div
-        className={cn("pointer-events-none absolute inset-0 z-[1] twin-rain", wetness > 0.08 && "twin-rain--active")}
-        style={{ ["--rain-opacity" as string]: Math.min(0.55, 0.12 + wetness * 0.5) }}
+        className={cn(
+          "pointer-events-none absolute inset-0 z-[1] twin-rain",
+          wetness > 0.08 && "twin-rain--active"
+        )}
+        style={{
+          ["--rain-opacity" as string]: Math.min(0.55, 0.12 + wetness * 0.5),
+        }}
         aria-hidden
       />
 
@@ -277,78 +349,59 @@ export function TwinWorkspace() {
         onClose={() => twin.selectAsset(null)}
       />
 
-      {/* Top brand bar */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 p-3 md:p-4">
-        <div className="pointer-events-auto glass-panel rounded-xl px-3.5 py-2.5">
-          <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-md bg-gradient-to-br from-slate-200 to-slate-500 text-slate-950">
-              <Layers className="h-4 w-4" />
-            </div>
-            <div>
-              <p className="font-display text-lg leading-none tracking-tight text-white">
-                TwinBench
-              </p>
-              <p className="mt-1 text-[11px] text-slate-400">
-                Genesis Campus · Operations twin
-              </p>
-            </div>
-            <div className="ml-2 hidden items-center gap-2 border-l border-white/10 pl-3 sm:flex">
-              <span className="hud-chip">
-                <span
-                  className={cn(
-                    "live-dot",
-                    !twin.connected && "live-dot--off",
-                    twin.connected && criticalCount > 0 && "live-dot--warn"
-                  )}
-                />
-                {twin.connected ? "Live" : "Offline"}
-              </span>
-              <span className="hud-chip">EPSG:4326</span>
-              {liveWeather.weather && (
-                <span className="hud-chip" title="Live Open-Meteo feed">
-                  {liveWeather.weather.temperatureC != null
-                    ? `${liveWeather.weather.temperatureC.toFixed(0)}°C`
-                    : "Wx"}
-                  {liveWeather.weather.windSpeedMps != null
-                    ? ` · ${liveWeather.weather.windSpeedMps.toFixed(0)} m/s`
-                    : ""}
-                </span>
-              )}
-            </div>
+      {/* Minimal brand */}
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 p-3 md:p-4">
+        <div className="pointer-events-auto glass-panel flex items-center gap-3 rounded-xl px-3 py-2">
+          <div className="grid h-8 w-8 place-items-center rounded-md bg-gradient-to-br from-slate-200 to-slate-500 text-slate-950">
+            <Layers className="h-3.5 w-3.5" />
           </div>
+          <div>
+            <p className="font-display text-base leading-none tracking-tight text-white">
+              TwinBench
+            </p>
+            <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-slate-500">
+              Operations twin
+            </p>
+          </div>
+          <span className="hud-chip ml-1">
+            <span
+              className={cn(
+                "live-dot",
+                !twin.connected && "live-dot--off",
+                twin.connected && criticalCount > 0 && "live-dot--warn"
+              )}
+            />
+            {twin.connected ? "Live" : "Offline"}
+          </span>
         </div>
 
-        <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-2">
+        <div className="pointer-events-auto flex items-center gap-1.5">
           <div className="glass-panel flex items-center gap-0.5 rounded-xl p-1">
-            <Button asChild size="sm" variant="ghost">
-              <Link href="/admin" title="Layer admin">
+            <Button asChild size="sm" variant="ghost" title="Admin">
+              <Link href="/admin">
                 <Settings className="h-4 w-4" />
-                Admin
               </Link>
             </Button>
             <Button
               size="sm"
               variant={timeOfDay === "day" ? "default" : "ghost"}
               onClick={() => setTimeOfDay("day")}
-              aria-pressed={timeOfDay === "day"}
+              title="Day"
             >
               <Sun className="h-4 w-4" />
-              Day
             </Button>
             <Button
               size="sm"
               variant={timeOfDay === "night" ? "default" : "ghost"}
               onClick={() => setTimeOfDay("night")}
-              aria-pressed={timeOfDay === "night"}
+              title="Night"
             >
               <Moon className="h-4 w-4" />
-              Night
             </Button>
             <Button
               size="sm"
               variant="ghost"
               onClick={() => zoomCamera("out")}
-              aria-label="Zoom out"
               title="Zoom out"
             >
               <Minus className="h-4 w-4" />
@@ -357,390 +410,396 @@ export function TwinWorkspace() {
               size="sm"
               variant="ghost"
               onClick={() => zoomCamera("in")}
-              aria-label="Zoom in"
               title="Zoom in"
             >
               <Plus className="h-4 w-4" />
             </Button>
           </div>
-
-          <div className="glass-panel flex items-center gap-3 rounded-xl px-3 py-2">
-            <Lightbulb
-              className={cn(
-                "h-4 w-4",
-                poleLightsOn ? "text-amber-300" : "text-slate-500"
-              )}
-            />
-            <div className="text-xs">
-              <p className="font-medium text-slate-200">Site lighting</p>
-              <p className="text-slate-500">
-                {poleLightsOn ? "Natural" : "Off"} · {poles.length} poles
-              </p>
-            </div>
-            <Switch
-              checked={poleLightsOn}
-              onCheckedChange={setPoleLightsOn}
-              aria-label="Toggle pole lights"
-            />
-          </div>
         </div>
       </header>
 
-      {/* Walkthrough mode HUD */}
       {twin.walkthroughMode !== "off" && (
-        <div className="pointer-events-none absolute left-1/2 top-[4.75rem] z-20 -translate-x-1/2 animate-in-fade">
+        <div className="pointer-events-none absolute left-1/2 top-16 z-20 -translate-x-1/2 animate-in-fade">
           <div className="glass-panel rounded-full px-3 py-1.5 text-[11px] text-slate-200">
             {twin.walkthroughMode === "walk"
-              ? "Walkthrough · WASD move · drag look"
+              ? "Walk · WASD · drag look"
               : twin.walkthroughMode === "first"
-                ? `Cab view · ATLAS-01${robot.playing ? " · roaming" : ""}`
-                : `Chase cam · ATLAS-01${robot.playing ? " · roaming" : ""}`}
+                ? `Cab · ATLAS-01${robot.playing ? " · roaming" : ""}`
+                : `Chase · ATLAS-01${robot.playing ? " · roaming" : ""}`}
           </div>
         </div>
       )}
 
-      {/* Left tool rail */}
-      <aside className="pointer-events-auto absolute bottom-20 left-3 z-20 flex max-h-[58vh] w-[min(100%-1.5rem,17rem)] flex-col gap-2 md:bottom-auto md:left-4 md:top-24 md:max-h-[calc(100dvh-9.5rem)]">
-        <div className="glass-panel rounded-xl p-2">
-          <p className="mb-2 px-2 pt-1 text-[10px] uppercase tracking-[0.18em] text-slate-500">
-            Analysis tools
-          </p>
-          <div className="grid grid-cols-2 gap-1">
-            {tools.map((t) => {
-              const Icon = t.icon;
-              const active = tool === t.id;
-              return (
-                <Button
-                  key={t.id}
-                  size="sm"
-                  variant={active ? "default" : "ghost"}
-                  className="justify-start"
-                  onClick={() => {
-                    setTool(t.id);
-                    if (
-                      t.id === "measure-distance" ||
-                      t.id === "measure-area" ||
-                      t.id === "height-profile" ||
-                      t.id === "viewshed"
-                    ) {
-                      window.dispatchEvent(new Event("twin-clear-measure"));
-                      setMeasure(null);
-                    }
-                  }}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {t.label}
-                </Button>
-              );
-            })}
-          </div>
-          <Separator className="my-2" />
-          <div className="flex gap-1">
-            <Button
-              size="sm"
-              variant="secondary"
-              className="flex-1"
-              onClick={undoPole}
-              disabled={!poleHistory.length}
-            >
-              <Undo2 className="h-3.5 w-3.5" />
-              Undo
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              className="flex-1"
-              onClick={clearPoles}
-              disabled={!poles.length}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Clear
-            </Button>
-          </div>
-        </div>
-
-        {measure && (
-          <div className="glass-panel animate-in-fade rounded-xl border-teal-400/20 p-3">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-teal-300/80">
+      {measure && (
+        <div className="pointer-events-none absolute left-1/2 top-24 z-20 -translate-x-1/2 animate-in-fade">
+          <div className="glass-panel rounded-xl border-teal-400/20 px-4 py-2 text-center">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-teal-300/80">
               {measure.label}
             </p>
-            <p className="mt-1 font-display text-xl text-white">{measure.value}</p>
-            {measure.detail && (
-              <p className="mt-1 text-xs text-slate-400">{measure.detail}</p>
+            <p className="font-display text-lg text-white">{measure.value}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Click-to-open dock */}
+      <nav className="pointer-events-auto absolute bottom-16 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1 rounded-2xl border border-white/10 bg-[#0a1018]/92 p-1.5 shadow-2xl backdrop-blur-xl md:bottom-20">
+        {dockItems.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => togglePanel(id)}
+            className={cn(
+              "flex min-w-[3.5rem] flex-col items-center gap-0.5 rounded-xl px-2.5 py-2 text-[10px] transition",
+              panel === id
+                ? "bg-white/12 text-white"
+                : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
             )}
-          </div>
-        )}
-      </aside>
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </button>
+        ))}
+      </nav>
 
-      {/* Right panel */}
-      <aside className="pointer-events-auto absolute bottom-20 right-3 z-20 w-[min(100%-1.5rem,20rem)] md:bottom-auto md:right-4 md:top-24">
-        <div className="glass-panel overflow-hidden rounded-xl">
-          <div className="flex border-b border-white/10 p-1">
-            {(
-              [
-                ["ops", "COP", Activity],
-                ["layers", "Layers", Layers],
-                ["sim", "Robot", Bot],
-                ["connect", "Tiles", Link2],
-              ] as const
-            ).map(([id, label, Icon]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setPanel(id)}
-                className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs transition",
-                  panel === id
-                    ? "bg-white/10 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                )}
+      {/* Single floating panel */}
+      {panel && (
+        <aside className="pointer-events-auto absolute bottom-32 left-1/2 z-30 w-[min(100%-1.5rem,22rem)] -translate-x-1/2 animate-in-fade md:bottom-auto md:left-auto md:right-4 md:top-20 md:translate-x-0">
+          <div className="glass-panel overflow-hidden rounded-2xl shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 px-3 py-2.5">
+              <p className="text-sm font-medium text-white">{panelTitle[panel]}</p>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                onClick={() => setPanel(null)}
+                aria-label="Close panel"
               >
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <ScrollArea className="h-[min(44vh,24rem)]">
-            <div className="space-y-3 p-3">
-              {panel === "ops" && (
-                <OperationsPanel
-                  readings={twin.readings}
-                  alerts={twin.alerts}
-                  bms={twin.bms}
-                  symbology={twin.symbology}
-                  connected={twin.connected}
-                  robotBattery={twin.robotTelemetry?.batteryPct}
-                  robotAlerts={twin.robotTelemetry?.activeAlerts}
-                  weather={liveWeather.weather}
-                  weatherError={liveWeather.error}
-                  onAcknowledge={twin.acknowledgeAlert}
-                  onSelectAsset={twin.selectAsset}
-                />
-              )}
-
-              {panel === "layers" &&
-                (layerCatalog.loading ? (
-                  <p className="px-2 text-xs text-slate-500">Loading layers…</p>
-                ) : layerCatalog.error ? (
-                  <p className="px-2 text-xs text-red-400">{layerCatalog.error}</p>
-                ) : layerCatalog.layers.length === 0 ? (
-                  <p className="px-2 text-xs text-slate-500">
-                    No layers — configure in{" "}
-                    <Link href="/admin" className="text-teal-300 underline">
-                      admin
-                    </Link>
-                  </p>
-                ) : (
-                  layerCatalog.layers.map((layer) => (
-                    <div
-                      key={layer.configId}
-                      className="flex items-start justify-between gap-3 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2.5"
-                    >
-                      <div>
-                        <p className="text-sm text-slate-100">{layer.label}</p>
-                        <p className="text-xs text-slate-500">
-                          {layer.description} · z{layer.zOrder}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={layer.visible}
-                        onCheckedChange={() => toggleLayer(layer.configId)}
-                        aria-label={`Toggle ${layer.label}`}
-                      />
-                    </div>
-                  ))
-                ))}
-
-              {panel === "sim" && (
-                <>
-                  <WalkthroughControls
-                    mode={twin.walkthroughMode}
-                    onChange={handleWalkthroughChange}
-                    robotPlaying={robot.playing}
-                  />
-                  <div className="rounded-lg border border-amber-400/20 bg-amber-400/[0.06] p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <MapPin className="h-4 w-4 text-amber-300" />
-                        <p className="text-sm font-medium text-amber-50">
-                          ATLAS-01
-                        </p>
-                      </div>
-                      <span className="hud-chip">
-                        <span
-                          className={cn(
-                            "live-dot",
-                            !robot.playing && "live-dot--off"
-                          )}
-                        />
-                        {robot.playing ? "Roaming" : "Standby"}
-                      </span>
-                    </div>
-                    <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-                      Free campus simulation — no fixed route. Picks live goals
-                      and steers across site. Battery{" "}
-                      {twin.robotTelemetry?.batteryPct?.toFixed(0) ?? "—"}%.
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      className="flex-1"
-                      variant={robot.playing ? "secondary" : "default"}
-                      onClick={togglePatrol}
-                    >
-                      {robot.playing ? (
-                        <Pause className="h-4 w-4" />
-                      ) : (
-                        <Play className="h-4 w-4" />
-                      )}
-                      {robot.playing ? "Pause" : "Start simulation"}
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      onClick={() =>
-                        setRobot((r) => ({
-                          ...r,
-                          playing: false,
-                          progress: 0,
-                        }))
-                      }
-                    >
-                      Reset
-                    </Button>
-                  </div>
-                  <label className="block text-xs text-slate-400">
-                    Simulation speed
-                    <input
-                      type="range"
-                      min={0.35}
-                      max={2.5}
-                      step={0.05}
-                      value={robot.speed}
-                      onChange={(e) =>
-                        setRobot((r) => ({
-                          ...r,
-                          speed: Number(e.target.value),
-                        }))
-                      }
-                      className="mt-2 w-full accent-teal-400"
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <ScrollArea className="h-[min(52vh,28rem)]">
+              <div className="space-y-3 p-3">
+                {panel === "live" && (
+                  <>
+                    <OperationsPanel
+                      readings={twin.readings}
+                      alerts={twin.alerts}
+                      bms={twin.bms}
+                      symbology={twin.symbology}
+                      connected={twin.connected}
+                      robotBattery={twin.robotTelemetry?.batteryPct}
+                      robotAlerts={twin.robotTelemetry?.activeAlerts}
+                      weather={liveWeather.weather}
+                      weatherError={liveWeather.error}
+                      onAcknowledge={twin.acknowledgeAlert}
+                      onSelectAsset={twin.selectAsset}
                     />
-                  </label>
-                  <p className="text-xs text-slate-500">
-                    Use Chase / Cab to follow the unit. Amber marker stays
-                    visible from orbit.
-                  </p>
-                </>
-              )}
-
-              {panel === "connect" && (
-                <>
-                  <div className="rounded-lg border border-teal-400/20 bg-teal-400/[0.06] p-3">
-                    <div className="flex items-center gap-2">
-                      <FlaskConical className="h-4 w-4 text-teal-300" />
-                      <p className="text-sm font-medium text-teal-50">
-                        Sandcastle test
+                    <div className="rounded-lg border border-white/5 bg-white/[0.03] p-2">
+                      <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                        Time travel
+                      </p>
+                      <TimeSlider
+                        isLive={twin.isLive}
+                        simulationTime={twin.simulationTime}
+                        onChange={twin.setSimulationTime}
+                      />
+                      <p className="mt-2 text-[10px] text-slate-500">
+                        Weather refreshes every 10 minutes
+                        {liveWeather.updatedAt
+                          ? ` · last ${new Date(liveWeather.updatedAt).toLocaleTimeString()}`
+                          : ""}
                       </p>
                     </div>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {SANDCASTLE_PRESET_NOTE}
+                  </>
+                )}
+
+                {panel === "sim" && (
+                  <>
+                    <WalkthroughControls
+                      mode={twin.walkthroughMode}
+                      onChange={handleWalkthroughChange}
+                      robotPlaying={robot.playing}
+                    />
+                    <div className="rounded-lg border border-amber-400/20 bg-amber-400/[0.06] p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <MapPin className="h-4 w-4 text-amber-300" />
+                          <p className="text-sm font-medium text-amber-50">
+                            ATLAS-01
+                          </p>
+                        </div>
+                        <span className="hud-chip">
+                          <span
+                            className={cn(
+                              "live-dot",
+                              !robot.playing && "live-dot--off"
+                            )}
+                          />
+                          {robot.playing ? "Roaming" : "Standby"}
+                        </span>
+                      </div>
+                      <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
+                        Free-roam simulation — no fixed route. Battery{" "}
+                        {twin.robotTelemetry?.batteryPct?.toFixed(0) ?? "—"}%.
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        className="flex-1"
+                        variant={robot.playing ? "secondary" : "default"}
+                        onClick={togglePatrol}
+                      >
+                        {robot.playing ? (
+                          <Pause className="h-4 w-4" />
+                        ) : (
+                          <Play className="h-4 w-4" />
+                        )}
+                        {robot.playing ? "Pause" : "Start simulation"}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() =>
+                          setRobot((r) => ({
+                            ...r,
+                            playing: false,
+                            progress: 0,
+                          }))
+                        }
+                      >
+                        Reset
+                      </Button>
+                    </div>
+                    <label className="block text-xs text-slate-400">
+                      Simulation speed
+                      <input
+                        type="range"
+                        min={0.35}
+                        max={2.5}
+                        step={0.05}
+                        value={robot.speed}
+                        onChange={(e) =>
+                          setRobot((r) => ({
+                            ...r,
+                            speed: Number(e.target.value),
+                          }))
+                        }
+                        className="mt-2 w-full accent-teal-400"
+                      />
+                    </label>
+                    <div className="flex items-center justify-between rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2">
+                      <div className="flex items-center gap-2 text-xs text-slate-300">
+                        <Lightbulb
+                          className={cn(
+                            "h-4 w-4",
+                            poleLightsOn ? "text-amber-300" : "text-slate-500"
+                          )}
+                        />
+                        Site lighting · {poles.length} poles
+                      </div>
+                      <Switch
+                        checked={poleLightsOn}
+                        onCheckedChange={setPoleLightsOn}
+                        aria-label="Toggle pole lights"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {panel === "tiles" && (
+                  <>
+                    <p className="text-xs leading-relaxed text-slate-400">
+                      Load a tileset separately from the demo scene. Upload
+                      locally in{" "}
+                      <Link href="/admin" className="text-teal-300 underline">
+                        Admin
+                      </Link>{" "}
+                      or paste a URL.
                     </p>
-                    <div className="mt-2 flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button
                         size="sm"
-                        className="flex-1"
                         variant={
-                          activeScene === "sandcastle" ? "default" : "secondary"
+                          activeScene === "tiles" &&
+                          tilesetUrl.includes("sandcastle")
+                            ? "default"
+                            : "secondary"
                         }
                         onClick={loadSandcastleTest}
                       >
-                        Load sample tiles
+                        <FlaskConical className="h-3.5 w-3.5" />
+                        Sample
                       </Button>
                       <Button
                         size="sm"
-                        variant={
-                          activeScene === "campus" ? "default" : "secondary"
-                        }
-                        onClick={loadCampusDemo}
+                        variant="secondary"
+                        onClick={loadPlatformTileset}
+                        disabled={!platformTilesUrl}
                       >
-                        Campus
+                        <Box className="h-3.5 w-3.5" />
+                        Platform
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={activeScene === "demo" ? "default" : "secondary"}
+                        onClick={loadDemoScene}
+                      >
+                        Demo scene
                       </Button>
                     </div>
-                  </div>
-                  <p className="text-xs leading-relaxed text-slate-400">
-                    Paste a <code className="text-teal-300">tileset.json</code>{" "}
-                    URL, or set{" "}
-                    <code className="text-teal-300">CESIUM_ION_TOKEN</code> and{" "}
-                    <code className="text-teal-300">CESIUM_ION_ASSET_ID</code>{" "}
-                    in the environment. Demo campus works without credentials.
-                  </p>
-                  <label className="block text-xs text-slate-400">
-                    3D Tiles URL
-                    <input
-                      value={tilesetUrl}
-                      onChange={(e) => {
-                        setTilesetUrl(e.target.value);
-                        setActiveScene(
-                          e.target.value.includes("sandcastle-tileset")
-                            ? "sandcastle"
-                            : "campus"
-                        );
-                      }}
-                      placeholder="https://…/tileset.json"
-                      className="mt-1.5 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 outline-none ring-teal-400/40 placeholder:text-slate-600 focus:ring-2"
-                    />
-                  </label>
-                  <div className="rounded-lg border border-white/5 bg-white/[0.03] p-3 text-xs text-slate-400">
-                    <p>
-                      Ion token:{" "}
-                      {config.cesiumIonToken ? (
-                        <span className="text-teal-300">configured</span>
-                      ) : (
-                        <span className="text-slate-500">not set</span>
-                      )}
+                    {platformTilesUrl && (
+                      <p className="truncate font-mono text-[10px] text-slate-500">
+                        Platform: {platformTilesUrl}
+                      </p>
+                    )}
+                    <label className="block text-xs text-slate-400">
+                      tileset.json URL
+                      <input
+                        value={tilesetUrl}
+                        onChange={(e) => {
+                          setTilesetUrl(e.target.value);
+                          setActiveScene(e.target.value.trim() ? "tiles" : "demo");
+                        }}
+                        placeholder="/uploads/tilesets/…/tileset.json"
+                        className="mt-1.5 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 font-mono text-[11px] text-slate-100 outline-none ring-teal-400/40 placeholder:text-slate-600 focus:ring-2"
+                      />
+                    </label>
+                    <p className="text-[10px] text-slate-500">
+                      {SANDCASTLE_PRESET_NOTE}
                     </p>
-                    <p className="mt-1">
-                      Ion asset:{" "}
-                      {config.cesiumIonAssetId ?? (
-                        <span className="text-slate-500">not set</span>
-                      )}
-                    </p>
-                    <p className="mt-1">
-                      Scene:{" "}
-                      <span className="text-teal-300">{activeScene}</span>
-                    </p>
-                  </div>
-                </>
-              )}
-            </div>
-          </ScrollArea>
-        </div>
-      </aside>
+                    <div className="rounded-lg border border-white/5 bg-white/[0.03] p-3 text-xs text-slate-400">
+                      <p>
+                        Ion:{" "}
+                        {config.cesiumIonToken ? (
+                          <span className="text-teal-300">token set</span>
+                        ) : (
+                          <span className="text-slate-500">no token</span>
+                        )}
+                        {config.cesiumIonAssetId
+                          ? ` · asset ${config.cesiumIonAssetId}`
+                          : ""}
+                      </p>
+                      <p className="mt-1">
+                        Active:{" "}
+                        <span className="text-teal-300">
+                          {tilesetUrl ? "tileset" : "demo vectors"}
+                        </span>
+                      </p>
+                    </div>
+                  </>
+                )}
 
-      {/* Status bar */}
-      <footer className="absolute inset-x-0 bottom-0 z-20 p-3 md:p-4">
-        <div className="glass-panel flex flex-col gap-2 rounded-xl px-3 py-2">
-          <TimeSlider
-            isLive={twin.isLive}
-            simulationTime={twin.simulationTime}
-            onChange={twin.setSimulationTime}
-          />
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
-            <span className="truncate">{status}</span>
-            <span className="flex items-center gap-3">
-              <span>
-                {timeOfDay === "day" ? "Daylight" : "Night"} · lights{" "}
-                {poleLightsOn ? "on" : "off"}
-              </span>
-              <span className="hidden sm:inline">
-                {criticalCount > 0
-                  ? `${criticalCount} critical alerts`
-                  : activeScene === "sandcastle"
-                    ? "Sandcastle sample tiles"
-                    : "Campus twin · live telemetry"}
-              </span>
-            </span>
+                {panel === "layers" &&
+                  (layerCatalog.loading ? (
+                    <p className="text-xs text-slate-500">Loading layers…</p>
+                  ) : layerCatalog.error ? (
+                    <p className="text-xs text-red-400">{layerCatalog.error}</p>
+                  ) : layerCatalog.layers.length === 0 ? (
+                    <p className="text-xs text-slate-500">
+                      No layers — configure in{" "}
+                      <Link href="/admin" className="text-teal-300 underline">
+                        admin
+                      </Link>
+                    </p>
+                  ) : (
+                    layerCatalog.layers.map((layer) => (
+                      <div
+                        key={layer.configId}
+                        className="flex items-start justify-between gap-3 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2.5"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm text-slate-100">{layer.label}</p>
+                          <p className="truncate text-xs text-slate-500">
+                            {layer.description}
+                          </p>
+                        </div>
+                        <Switch
+                          checked={layer.visible}
+                          onCheckedChange={() => toggleLayer(layer.configId)}
+                          aria-label={`Toggle ${layer.label}`}
+                        />
+                      </div>
+                    ))
+                  ))}
+
+                {panel === "tools" && (
+                  <>
+                    <div className="grid grid-cols-2 gap-1">
+                      {tools.map((t) => {
+                        const Icon = t.icon;
+                        const active = tool === t.id;
+                        return (
+                          <Button
+                            key={t.id}
+                            size="sm"
+                            variant={active ? "default" : "ghost"}
+                            className="justify-start"
+                            onClick={() => {
+                              setTool(t.id);
+                              if (
+                                t.id === "measure-distance" ||
+                                t.id === "measure-area" ||
+                                t.id === "height-profile" ||
+                                t.id === "viewshed"
+                              ) {
+                                window.dispatchEvent(
+                                  new Event("twin-clear-measure")
+                                );
+                                setMeasure(null);
+                              }
+                            }}
+                          >
+                            <Icon className="h-3.5 w-3.5" />
+                            {t.label}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                    <Separator />
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="flex-1"
+                        onClick={undoPole}
+                        disabled={!poleHistory.length}
+                      >
+                        <Undo2 className="h-3.5 w-3.5" />
+                        Undo
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="flex-1"
+                        onClick={clearPoles}
+                        disabled={!poles.length}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Clear
+                      </Button>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Navigate · scroll/pinch zoom · drag rotate · right-drag
+                      tilt
+                    </p>
+                  </>
+                )}
+              </div>
+            </ScrollArea>
           </div>
+        </aside>
+      )}
+
+      {/* Slim status */}
+      <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-20 p-3 md:px-4 md:pb-3">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 rounded-full border border-white/8 bg-[#0a1018]/75 px-4 py-1.5 text-[11px] text-slate-400 backdrop-blur-md">
+          <span className="truncate">{status}</span>
+          <span className="shrink-0">
+            {timeOfDay === "day" ? "Day" : "Night"}
+            {liveWeather.weather?.temperatureC != null
+              ? ` · ${liveWeather.weather.temperatureC.toFixed(0)}°C`
+              : ""}
+            {criticalCount > 0 ? ` · ${criticalCount} critical` : ""}
+          </span>
         </div>
       </footer>
     </div>

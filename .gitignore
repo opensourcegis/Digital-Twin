@@ -26,3 +26,7 @@ public/cesium/
 .netlify/
 .vercel/
 *.tsbuildinfo
+
+# uploaded 3D tiles (admin)
+public/uploads/tilesets/*
+!public/uploads/tilesets/.gitignore

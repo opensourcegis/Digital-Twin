@@ -20,6 +20,7 @@ import type { LayerConfig, LayerCategory } from "@/lib/layers/types";
 import { LAYER_CATEGORY_LABELS, DEFAULT_LAYER_STYLE } from "@/lib/layers/types";
 import { LayerFormDialog } from "@/components/admin/LayerFormDialog";
 import { WeatherAdminPanel } from "@/components/admin/WeatherAdminPanel";
+import { TilesetAdminPanel } from "@/components/admin/TilesetAdminPanel";
 
 export function LayerAdminDashboard() {
   const [layers, setLayers] = useState<LayerConfig[]>([]);
@@ -163,6 +164,7 @@ export function LayerAdminDashboard() {
 
       <main className="mx-auto max-w-6xl space-y-8 px-4 py-6 md:px-6">
         <WeatherAdminPanel />
+        <TilesetAdminPanel />
 
         <div>
           <div className="mb-4 flex items-end justify-between gap-3">
