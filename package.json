@@ -9,9 +9,13 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 43145",
     "lint": "eslint .",
-    "copy-cesium": "node scripts/copy-cesium.mjs"
+    "copy-cesium": "node scripts/copy-cesium.mjs",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:seed": "tsx src/db/migrate.ts",
+    "db:up": "docker compose up -d db"
   },
   "dependencies": {
+    "@netlify/database": "^2.0.1",
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-label": "^2.1.15",
     "@radix-ui/react-scroll-area": "^1.2.18",
@@ -23,8 +27,11 @@
     "cesium": "^1.145.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "drizzle-orm": "^1.0.0-beta.22",
     "lucide-react": "^1.47.0",
+    "mqtt": "^5.16.0",
     "next": "^16.3.5",
+    "postgres": "^3.4.9",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.7.0"
@@ -34,10 +41,13 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^18.0.1",
+    "drizzle-kit": "^1.0.0-beta.22",
     "eslint": "^9",
     "eslint-config-next": "^16.3.5",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
+    "tsx": "^4.23.13",
     "typescript": "^5"
   }
 }

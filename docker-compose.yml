@@ -1,4 +1,20 @@
 services:
+  db:
+    image: timescale/timescaledb-ha:pg16
+    environment:
+      POSTGRES_USER: twin
+      POSTGRES_PASSWORD: twin
+      POSTGRES_DB: twinbench
+    ports:
+      - "5432:5432"
+    volumes:
+      - twin_pgdata:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U twin -d twinbench"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   twinbench:
     build: .
     ports:
@@ -7,7 +23,17 @@ services:
       - CESIUM_ION_TOKEN=${CESIUM_ION_TOKEN:-}
       - CESIUM_ION_ASSET_ID=${CESIUM_ION_ASSET_ID:-}
       - DEFAULT_TILESET_URL=${DEFAULT_TILESET_URL:-}
+      - DATABASE_URL=postgres://twin:twin@db:5432/twinbench
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-twinbench}
+      - MQTT_URL=${MQTT_URL:-}
+      - SENSOR_THINGS_URL=${SENSOR_THINGS_URL:-}
+      - GATEWAY_MODE=${GATEWAY_MODE:-simulator}
     volumes:
-      # Optional local 3D Tiles payload (serve via URL elsewhere or future static route)
       - ./data/tiles:/app/data/tiles:ro
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  twin_pgdata:

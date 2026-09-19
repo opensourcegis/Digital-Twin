@@ -113,6 +113,13 @@ export class TwinStore {
     return this.assets.get(guid);
   }
 
+  /** Merge/upsert assets (Phase 3 IFC import into memory twin). */
+  upsertAssets(list: TwinAsset[]) {
+    for (const a of list) {
+      this.assets.set(a.guid, a);
+    }
+  }
+
   getRelations(guid?: string) {
     if (!guid) return this.relations;
     return this.relations.filter(
@@ -157,6 +164,9 @@ export class TwinStore {
     const pt = this.bmsPoints.find((p) => p.guid === guid);
     if (!pt || !pt.writable) return null;
     pt.value = value;
+    void import("./twin-persist")
+      .then((m) => m.persistBmsValue(guid, value))
+      .catch(() => {});
     return pt;
   }
 
@@ -174,10 +184,12 @@ export class TwinStore {
   acknowledgeAlert(id: string) {
     const a = this.alerts.find((x) => x.id === id);
     if (a) a.acknowledged = true;
+    void import("./twin-persist").then((m) => m.persistAlertAck(id)).catch(() => {});
     return a;
   }
 
   getTimeSeries(sensorGuid: string, from: number, to: number): TimeSeriesPoint[] {
+    // Prefer DB when available (async callers use getTimeSeriesAsync)
     const points: TimeSeriesPoint[] = [];
     for (const snap of this.history) {
       const ts = new Date(snap.timestamp).getTime();
@@ -194,6 +206,23 @@ export class TwinStore {
       }
     }
     return points;
+  }
+
+  async getTimeSeriesAsync(
+    sensorGuid: string,
+    from: number,
+    to: number
+  ): Promise<TimeSeriesPoint[]> {
+    try {
+      const { queryTimeSeries, twinDbEnabled } = await import("./twin-persist");
+      if (twinDbEnabled()) {
+        const rows = await queryTimeSeries(sensorGuid, from, to);
+        if (rows && rows.length) return rows;
+      }
+    } catch {
+      /* fall through */
+    }
+    return this.getTimeSeries(sensorGuid, from, to);
   }
 
   getSymbology(at?: number) {
@@ -268,6 +297,35 @@ export class TwinStore {
     }
     for (const cb of this.subscribers) cb(snap);
     this.lastTick = now;
+
+    // Phase 1: persist asynchronously when DATABASE_URL is configured
+    void this.persistTick(snap);
+  }
+
+  private async persistTick(snap: TwinSnapshot) {
+    try {
+      const {
+        twinDbEnabled,
+        persistReadings,
+        persistAlerts,
+        persistRobotState,
+        recordEvent,
+      } = await import("./twin-persist");
+      if (!twinDbEnabled()) return;
+      // Downsample writes: every ~5 minutes worth of ticks (~150 at 2s) is heavy;
+      // persist every tick for readings but that's ok for demo scale (7 sensors).
+      await persistReadings(snap.readings);
+      await persistAlerts(this.alerts.slice(0, 20));
+      await persistRobotState(snap.robot.progress, snap.robot.batteryPct);
+      if (this.driftCounter % 30 === 0) {
+        await recordEvent("twin.heartbeat", {
+          readings: snap.readings.length,
+          alerts: snap.alerts.length,
+        });
+      }
+    } catch (err) {
+      console.warn("twin persist failed", err);
+    }
   }
 
   private simulateReadings(now: number, phase: number) {

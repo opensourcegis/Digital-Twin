@@ -22,6 +22,7 @@ import { LayerFormDialog } from "@/components/admin/LayerFormDialog";
 import { WeatherAdminPanel } from "@/components/admin/WeatherAdminPanel";
 import { TilesetAdminPanel } from "@/components/admin/TilesetAdminPanel";
 import { PlatformDesignAdminPanel } from "@/components/admin/PlatformDesignAdminPanel";
+import { PersistentTwinAdminPanel } from "@/components/admin/PersistentTwinAdminPanel";
 
 export function LayerAdminDashboard() {
   const [layers, setLayers] = useState<LayerConfig[]>([]);
@@ -140,7 +141,7 @@ export function LayerAdminDashboard() {
             <div>
               <h1 className="font-display text-xl text-white">Admin</h1>
               <p className="text-xs text-slate-400">
-                Password-protected · simulation · GIS · weather · tiles · layers
+                Password-protected · twin platform · GIS · weather · tiles · layers
               </p>
             </div>
           </div>
@@ -164,6 +165,7 @@ export function LayerAdminDashboard() {
       </header>
 
       <main className="mx-auto max-w-6xl space-y-8 px-4 py-6 md:px-6">
+        <PersistentTwinAdminPanel />
         <PlatformDesignAdminPanel />
         <WeatherAdminPanel />
         <TilesetAdminPanel />

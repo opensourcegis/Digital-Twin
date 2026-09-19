@@ -23,6 +23,7 @@ import {
   Navigation,
   FlaskConical,
   Activity,
+  Network,
   Settings,
   Plus,
   Minus,
@@ -45,6 +46,7 @@ import { useTwinPlatform } from "@/hooks/useTwinPlatform";
 import { useLayerCatalog } from "@/hooks/useLayerCatalog";
 import { useWeather } from "@/hooks/useWeather";
 import { OperationsPanel } from "@/components/twin/OperationsPanel";
+import { TwinInsightPanel } from "@/components/twin/TwinInsightPanel";
 import { WalkthroughControls } from "@/components/twin/WalkthroughControls";
 import { TimeSlider } from "@/components/twin/TimeSlider";
 import { AssetDetailDrawer } from "@/components/twin/AssetDetailDrawer";
@@ -67,7 +69,14 @@ import {
 } from "@/lib/platform/types";
 import { requestZoomToLayer } from "@/lib/twin/zoom-to-layer";
 
-type DockPanel = "live" | "sim" | "tiles" | "layers" | "tools" | null;
+type DockPanel =
+  | "live"
+  | "insight"
+  | "sim"
+  | "tiles"
+  | "layers"
+  | "tools"
+  | null;
 
 const CesiumViewer = dynamic(
   () =>
@@ -334,6 +343,7 @@ export function TwinWorkspace() {
 
   const dockItems = [
     { id: "live" as const, label: "Live", icon: Activity },
+    { id: "insight" as const, label: "Insight", icon: Network },
     { id: "sim" as const, label: "Sim", icon: Bot },
     { id: "tiles" as const, label: "Tiles", icon: Box },
     { id: "layers" as const, label: "Layers", icon: Layers },
@@ -342,6 +352,7 @@ export function TwinWorkspace() {
 
   const panelTitle: Record<Exclude<DockPanel, null>, string> = {
     live: "Live data",
+    insight: "BIM · Scenario · Analytics",
     sim: "Simulation",
     tiles: "3D Tiles",
     layers: "Layers",
@@ -553,6 +564,10 @@ export function TwinWorkspace() {
                     </div>
                     )}
                   </>
+                )}
+
+                {panel === "insight" && (
+                  <TwinInsightPanel onSelectAsset={twin.selectAsset} />
                 )}
 
                 {panel === "sim" && (
