@@ -78,16 +78,16 @@ export function applyCesium3DTileStyle(
 }
 
 /**
- * Day/night + weather look for mesh / photogrammetry 3D Tiles.
- * Photogrammetry often ignores scene.light — CustomShader dims diffuse;
- * factor responds to night, cloud cover, and rain.
+ * Day/night look for mesh / photogrammetry 3D Tiles.
+ * Day: strip ALL style/shader overrides so textures show true color.
+ * Night: hard, obvious darken (users must see a brightness change).
  */
 export function applyTilesetTimeOfDay(
   Cesium: CesiumNS,
   tileset: any,
   mode: "day" | "night",
   stylePreset: TilesetStylePreset = "default",
-  weather?: {
+  _weather?: {
     cloudCoverPct?: number | null;
     rainMm?: number | null;
     precipProbabilityPct?: number | null;
@@ -95,128 +95,103 @@ export function applyTilesetTimeOfDay(
 ) {
   if (!tileset) return;
 
-  const clouds = Math.min(
-    1,
-    Math.max(0, (weather?.cloudCoverPct ?? 0) / 100) * 0.85 +
-      Math.min(1, Math.max(0, weather?.rainMm ?? 0) / 2.5) * 0.25
-  );
-  const wet = Math.min(
-    1,
-    Math.max(0, weather?.rainMm ?? 0) / 2.5 +
-      Math.max(0, weather?.precipProbabilityPct ?? 0) / 140
-  );
+  if (mode === "day") {
+    try {
+      tileset.customShader = undefined;
+    } catch {
+      /* ignore */
+    }
+    try {
+      // Critical: undefined style = native textured albedo (white style greys some meshes)
+      tileset.style = undefined;
+    } catch {
+      /* ignore */
+    }
+    // Non-default presets still get their style
+    if (stylePreset !== "default") {
+      applyCesium3DTileStyle(Cesium, tileset, stylePreset);
+    }
+    try {
+      if (tileset.imageBasedLighting) {
+        tileset.imageBasedLighting.imageBasedLightingFactor =
+          new Cesium.Cartesian2(1.0, 1.0);
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      if ("luminanceAtZenith" in tileset) tileset.luminanceAtZenith = 0.5;
+    } catch {
+      /* ignore */
+    }
+    try {
+      if ("lightColor" in tileset) {
+        tileset.lightColor = new Cesium.Cartesian3(1.5, 1.5, 1.5);
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (Cesium.Cesium3DTileColorBlendMode) {
+        tileset.colorBlendMode = Cesium.Cesium3DTileColorBlendMode.HIGHLIGHT;
+        if ("colorBlendAmount" in tileset) tileset.colorBlendAmount = 0.5;
+      }
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
 
-  // 1 = full daylight texture; lower = darker (night / overcast / rain)
-  // Keep night readable — brightness stage also dims the frame
-  const dim =
-    mode === "night"
-      ? 0.55 + clouds * 0.05
-      : Math.max(0.45, 1 - clouds * 0.45 - wet * 0.25);
-
+  // —— Night: unmistakable darkening ——
   try {
-    if (Cesium.CustomShader && Cesium.UniformType) {
-      const existing = tileset.customShader;
-      if (
-        existing?.uniforms?.u_twinDim &&
-        typeof existing.uniforms.u_twinDim.value === "number"
-      ) {
-        existing.uniforms.u_twinDim.value = dim;
-      } else {
-        tileset.customShader = new Cesium.CustomShader({
-          lightingModel: Cesium.LightingModel.UNLIT,
-          uniforms: {
-            u_twinDim: {
-              type: Cesium.UniformType.FLOAT,
-              value: dim,
-            },
-          },
-          fragmentShaderText: `
+    tileset.customShader = new Cesium.CustomShader({
+      lightingModel: Cesium.LightingModel.UNLIT,
+      fragmentShaderText: `
 void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
-  float d = u_twinDim;
-  material.diffuse *= vec3(d * 0.82, d * 0.88, d);
+  material.diffuse *= 0.38;
 }
 `,
-        });
-      }
-    } else if (mode === "day" && dim >= 0.95) {
-      tileset.customShader = undefined;
-    }
+    });
   } catch (err) {
-    console.warn("Tileset CustomShader day/night failed", err);
+    console.warn("Tileset night shader failed", err);
   }
 
   try {
     if (tileset.imageBasedLighting) {
       tileset.imageBasedLighting.imageBasedLightingFactor =
-        mode === "night"
-          ? new Cesium.Cartesian2(0.05, 0.01)
-          : new Cesium.Cartesian2(
-              Math.max(0.25, 1 - clouds * 0.6),
-              Math.max(0.2, 1 - clouds * 0.5)
-            );
+        new Cesium.Cartesian2(0.05, 0.02);
     }
   } catch {
     /* ignore */
   }
   try {
-    if ("luminanceAtZenith" in tileset) {
-      tileset.luminanceAtZenith =
-        mode === "night" ? 0.01 : Math.max(0.04, 0.2 * (1 - clouds * 0.7));
-    }
+    if ("luminanceAtZenith" in tileset) tileset.luminanceAtZenith = 0.01;
   } catch {
     /* ignore */
   }
   try {
     if ("lightColor" in tileset) {
-      tileset.lightColor =
-        mode === "night"
-          ? new Cesium.Cartesian3(0.08, 0.1, 0.18)
-          : new Cesium.Cartesian3(
-              Math.max(0.3, 1 - clouds * 0.4),
-              Math.max(0.3, 1 - clouds * 0.35),
-              Math.max(0.35, 1 - wet * 0.2)
-            );
+      tileset.lightColor = new Cesium.Cartesian3(0.15, 0.18, 0.28);
     }
   } catch {
     /* ignore */
   }
-
   try {
     if (Cesium.Cesium3DTileColorBlendMode) {
-      if (mode === "night" || dim < 0.85) {
-        tileset.colorBlendMode = Cesium.Cesium3DTileColorBlendMode.MIX;
-        if ("colorBlendAmount" in tileset) {
-          tileset.colorBlendAmount = mode === "night" ? 0.45 : 0.3 + (1 - dim) * 0.35;
-        }
-      } else {
-        tileset.colorBlendMode = Cesium.Cesium3DTileColorBlendMode.HIGHLIGHT;
-        if ("colorBlendAmount" in tileset) {
-          tileset.colorBlendAmount = 0.5;
-        }
-      }
+      tileset.colorBlendMode = Cesium.Cesium3DTileColorBlendMode.MIX;
+      if ("colorBlendAmount" in tileset) tileset.colorBlendAmount = 0.4;
     }
   } catch {
     /* ignore */
   }
-
-  const canTint =
-    stylePreset === "default" || stylePreset === "highlight-white";
-  if (!canTint || !Cesium.Cesium3DTileStyle) return;
   try {
-    if (mode === "night") {
+    if (Cesium.Cesium3DTileStyle) {
       tileset.style = new Cesium.Cesium3DTileStyle({
-        color: "color('#1a2438')",
+        color: "color() * vec4(0.4, 0.45, 0.6, 1.0)",
       });
-    } else if (dim < 0.85) {
-      // Overcast / rain tint without wiping textures
-      tileset.style = new Cesium.Cesium3DTileStyle({
-        color: `color() * vec4(${dim}, ${dim * 0.98}, ${Math.min(1, dim + 0.05)}, 1.0)`,
-      });
-    } else {
-      applyCesium3DTileStyle(Cesium, tileset, stylePreset);
     }
   } catch (err) {
-    console.warn("Tileset day/night style failed", err);
+    console.warn("Tileset night style failed", err);
   }
 }
 

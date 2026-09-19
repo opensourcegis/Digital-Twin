@@ -226,11 +226,11 @@ export function CesiumViewer({
     poles: new Map(),
     arms: new Map(),
     housings: new Map(),
-    lamps: new Map(),
+    bulbs: new Map(),
     glows: new Map(),
-    pools: new Map(),
-    hotspots: new Map(),
     beams: new Map(),
+    pools: new Map(),
+    rings: new Map(),
   });
   const robotHandle = useRef<AtlasRobotHandle | null>(null);
   const robotPoseRef = useRef<RobotPose>({ ...ROBOT_SPAWN });
@@ -1501,32 +1501,30 @@ export function CesiumViewer({
       }
       if (layer.builtInKey === "poles" && delta.visibility) {
         const caches = poleLightCaches.current;
+        const night = timeOfDayRef.current === "night";
         for (const id of caches.poles.keys()) {
           const poleOn =
             polesRef.current.find((p) => p.id === id)?.lightsOn !== false &&
             poleLightsRef.current;
-          const show = layer.visible && poleOn;
+          const show = layer.visible;
+          const lit = show && poleOn && night;
           for (const map of [
             caches.poles,
             caches.arms,
             caches.housings,
-            caches.lamps,
-            caches.glows,
-            caches.pools,
-            caches.hotspots,
-            caches.beams,
+            caches.bulbs,
           ]) {
             const ent = map?.get(id);
             if (ent) ent.show = show;
           }
-          // Pools/beams only at night when lit
-          const night = timeOfDayRef.current === "night";
-          const pool = caches.pools.get(id);
-          const hot = caches.hotspots.get(id);
+          const glow = caches.glows.get(id);
+          if (glow) glow.show = show && poleOn;
           const beam = caches.beams.get(id);
-          if (pool) pool.show = show && night;
-          if (hot) hot.show = show && night;
-          if (beam) beam.show = show && night;
+          const pool = caches.pools.get(id);
+          const ring = caches.rings?.get(id);
+          if (beam) beam.show = lit;
+          if (pool) pool.show = lit;
+          if (ring) ring.show = lit;
         }
         needsRender = true;
       }
@@ -1679,7 +1677,10 @@ export function CesiumViewer({
           attachTilesetErrorHandlers(tileset, (message, detail) => {
             reportTwinError({ source: "3D Tiles", message, detail });
           });
-          applyCesium3DTileStyle(Cesium, tileset, tilesetStylePreset);
+          // Day default = no style (true textures); applyTilesetTimeOfDay owns look
+          if (tilesetStylePreset !== "default") {
+            applyCesium3DTileStyle(Cesium, tileset, tilesetStylePreset);
+          }
           applyTilesetTimeOfDay(
             Cesium,
             tileset,
@@ -1944,7 +1945,9 @@ export function CesiumViewer({
     if (!Cesium || !readyRef.current) return;
     try {
       if (tilesetRef.current) {
-        applyCesium3DTileStyle(Cesium, tilesetRef.current, tilesetStylePreset);
+        if (tilesetStylePreset !== "default") {
+          applyCesium3DTileStyle(Cesium, tilesetRef.current, tilesetStylePreset);
+        }
         applyTilesetTimeOfDay(
           Cesium,
           tilesetRef.current,
@@ -1954,11 +1957,13 @@ export function CesiumViewer({
         );
       }
       if (vectorTilesetRef.current) {
-        applyCesium3DTileStyle(
-          Cesium,
-          vectorTilesetRef.current,
-          tilesetStylePreset
-        );
+        if (tilesetStylePreset !== "default") {
+          applyCesium3DTileStyle(
+            Cesium,
+            vectorTilesetRef.current,
+            tilesetStylePreset
+          );
+        }
         applyTilesetTimeOfDay(
           Cesium,
           vectorTilesetRef.current,
