@@ -77,6 +77,103 @@ export function applyCesium3DTileStyle(
   }
 }
 
+/**
+ * Day/night look for mesh / photogrammetry 3D Tiles.
+ * Many external tilesets are unlit or IBL-baked and ignore scene.light —
+ * dim via imageBasedLighting + colorBlend MIX (keeps texture, darkens).
+ */
+export function applyTilesetTimeOfDay(
+  Cesium: CesiumNS,
+  tileset: any,
+  mode: "day" | "night",
+  stylePreset: TilesetStylePreset = "default"
+) {
+  if (!tileset) return;
+  try {
+    if (tileset.imageBasedLighting) {
+      tileset.imageBasedLighting.imageBasedLightingFactor =
+        mode === "night"
+          ? new Cesium.Cartesian2(0.05, 0.01)
+          : new Cesium.Cartesian2(1.0, 1.0);
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    if ("luminanceAtZenith" in tileset) {
+      tileset.luminanceAtZenith = mode === "night" ? 0.01 : 0.2;
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    if ("lightColor" in tileset) {
+      tileset.lightColor =
+        mode === "night"
+          ? new Cesium.Cartesian3(0.08, 0.1, 0.18)
+          : new Cesium.Cartesian3(1.0, 1.0, 1.0);
+    }
+  } catch {
+    /* ignore */
+  }
+
+  // Photogrammetry often ignores pure style multiply unless colorBlend is MIX/REPLACE
+  try {
+    if (Cesium.Cesium3DTileColorBlendMode) {
+      tileset.colorBlendMode =
+        mode === "night"
+          ? Cesium.Cesium3DTileColorBlendMode.MIX
+          : Cesium.Cesium3DTileColorBlendMode.HIGHLIGHT;
+      if ("colorBlendAmount" in tileset) {
+        tileset.colorBlendAmount = mode === "night" ? 0.72 : 0.5;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const canTint =
+    stylePreset === "default" || stylePreset === "highlight-white";
+  if (!canTint || !Cesium.Cesium3DTileStyle) return;
+  try {
+    if (mode === "night") {
+      tileset.style = new Cesium.Cesium3DTileStyle({
+        color: "color('#141c2e')",
+      });
+    } else {
+      applyCesium3DTileStyle(Cesium, tileset, stylePreset);
+    }
+  } catch (err) {
+    console.warn("Tileset day/night style failed", err);
+  }
+}
+
+/**
+ * Load external http(s) 3D Tiles through same-origin /api/tiles-proxy so hosts
+ * without CORS still work. Same-origin and relative paths load directly.
+ */
+export function resourceForTilesetUrl(Cesium: CesiumNS, url: string): any {
+  const trimmed = url.trim();
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  try {
+    const parsed = new URL(trimmed, typeof window !== "undefined" ? window.location.href : undefined);
+    if (typeof window !== "undefined" && parsed.origin === window.location.origin) {
+      return trimmed;
+    }
+  } catch {
+    return trimmed;
+  }
+  if (!Cesium.Resource || !Cesium.DefaultProxy) {
+    return trimmed;
+  }
+  return new Cesium.Resource({
+    url: trimmed,
+    proxy: new Cesium.DefaultProxy("/api/tiles-proxy?url="),
+  });
+}
+
 export async function loadVectorOrMeshTileset(
   Cesium: CesiumNS,
   viewer: any,
@@ -86,9 +183,12 @@ export async function loadVectorOrMeshTileset(
     stylePreset?: TilesetStylePreset;
   }
 ): Promise<any> {
-  const tileset = await Cesium.Cesium3DTileset.fromUrl(url.trim(), {
-    maximumScreenSpaceError: opts?.maximumScreenSpaceError ?? 8,
-  });
+  const tileset = await Cesium.Cesium3DTileset.fromUrl(
+    resourceForTilesetUrl(Cesium, url),
+    {
+      maximumScreenSpaceError: opts?.maximumScreenSpaceError ?? 8,
+    }
+  );
   viewer.scene.primitives.add(tileset);
   if (opts?.stylePreset) {
     applyCesium3DTileStyle(Cesium, tileset, opts.stylePreset);

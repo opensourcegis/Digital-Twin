@@ -118,6 +118,8 @@ export function TwinWorkspace() {
   const [tool, setTool] = useState<ActiveTool>("navigate");
   const layerCatalog = useLayerCatalog({ pollMs: 30_000 });
   const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>("day");
+  /** When true, weather isDay may override the day/night toggle */
+  const [todFollowWeather, setTodFollowWeather] = useState(true);
   const [poles, setPoles] = useState<PlacedPole[]>([]);
   const [poleHistory, setPoleHistory] = useState<PlacedPole[][]>([]);
   const [poleLightsOn, setPoleLightsOn] = useState(true);
@@ -125,7 +127,9 @@ export function TwinWorkspace() {
   const [status, setStatus] = useState("Booting…");
   const [errors, setErrors] = useState<TwinError[]>([]);
   const [tilesetUrl, setTilesetUrl] = useState("");
+  const [tilesetDraft, setTilesetDraft] = useState("");
   const [vectorTilesUrl, setVectorTilesUrl] = useState("");
+  const [vectorTilesDraft, setVectorTilesDraft] = useState("");
   const [drapeMode, setDrapeMode] = useState<DrapeMode>("both");
   const [tilesetStylePreset, setTilesetStylePreset] =
     useState<TilesetStylePreset>("default");
@@ -162,10 +166,15 @@ export function TwinWorkspace() {
   const walkthroughDefaultApplied = useRef(false);
 
   useEffect(() => {
+    if (!todFollowWeather) return;
     if (!liveWeather.followDayNight) return;
     if (liveWeather.weather?.isDay == null) return;
     setTimeOfDay(liveWeather.weather.isDay ? "day" : "night");
-  }, [liveWeather.followDayNight, liveWeather.weather?.isDay]);
+  }, [
+    todFollowWeather,
+    liveWeather.followDayNight,
+    liveWeather.weather?.isDay,
+  ]);
 
   const handleRobotProgress = useCallback((progress: number) => {
     setRobot((r) => (r.progress === progress ? r : { ...r, progress }));
@@ -260,21 +269,16 @@ export function TwinWorkspace() {
     });
   }, [platformDataSource]);
 
+  useEffect(() => {
+    setTilesetDraft(tilesetUrl);
+  }, [tilesetUrl]);
+
+  useEffect(() => {
+    setVectorTilesDraft(vectorTilesUrl);
+  }, [vectorTilesUrl]);
+
   const togglePanel = (id: Exclude<DockPanel, null>) => {
     setPanel((p) => (p === id ? null : id));
-  };
-
-  const loadSandcastleTest = () => {
-    const url =
-      config.sandcastleTilesetUrl ||
-      SAMPLE_TILESET_URL ||
-      SANDCASTLE_TEST_TILESET_URL;
-    setActiveScene("tiles");
-    setPanel("tiles");
-    setTilesetUrl(url);
-    twin.setWalkthroughMode("off");
-    setRobot((r) => ({ ...r, playing: false }));
-    setStatus("Loading sample tileset (AGI HQ)…");
   };
 
   useEffect(() => {
@@ -335,15 +339,84 @@ export function TwinWorkspace() {
     []
   );
 
+  const commitTilesetUrl = useCallback(
+    (raw?: string) => {
+      const url = (raw ?? tilesetDraft).trim();
+      if (!url) {
+        setTilesetUrl("");
+        setTilesetDraft("");
+        setActiveScene("demo");
+        twin.setWalkthroughMode("off");
+        setTool("navigate");
+        setStatus("Cleared tileset — demo campus");
+        return;
+      }
+      if (!/^https?:\/\//i.test(url) && !url.startsWith("/")) {
+        setStatus("Tileset URL must start with http(s):// or /");
+        pushError("Invalid tileset URL", "External tileset", url);
+        return;
+      }
+      setActiveScene("tiles");
+      twin.setWalkthroughMode("off");
+      setTool("navigate");
+      setRobot((r) => ({ ...r, playing: false }));
+      // Force reload even if URL unchanged
+      setTilesetUrl("");
+      window.setTimeout(() => {
+        setTilesetUrl(url);
+        setTilesetDraft(url);
+        setStatus("Loading external 3D Tiles…");
+      }, 0);
+    },
+    [tilesetDraft, twin, pushError]
+  );
+
+  const loadSandcastleTest = () => {
+    const url =
+      config.sandcastleTilesetUrl ||
+      SAMPLE_TILESET_URL ||
+      SANDCASTLE_TEST_TILESET_URL;
+    setPanel("tiles");
+    pendingTilesetZoom.current = {
+      configId: "tileset",
+      key: "tileset",
+      builtInKey: "tileset",
+    };
+    commitTilesetUrl(url);
+  };
+
+  const commitVectorTilesUrl = useCallback((raw?: string) => {
+    const url = (raw ?? vectorTilesDraft).trim();
+    if (!url) {
+      setVectorTilesUrl("");
+      setVectorTilesDraft("");
+      setStatus("Cleared secondary tileset");
+      return;
+    }
+    if (!/^https?:\/\//i.test(url) && !url.startsWith("/")) {
+      setStatus("Vector tiles URL must start with http(s):// or /");
+      return;
+    }
+    setVectorTilesUrl("");
+    window.setTimeout(() => {
+      setVectorTilesUrl(url);
+      setVectorTilesDraft(url);
+      setStatus("Loading secondary 3D Tiles…");
+    }, 0);
+  }, [vectorTilesDraft]);
+
   const focusLayer = (layer: {
     configId: string;
     key: string;
     builtInKey?: string | null;
     label: string;
+    category?: string;
+    dataSource?: string | null;
   }) => {
     // Orbit so chase cam doesn't fight the zoom fly-to
     twin.setWalkthroughMode("off");
     setRobot((r) => ({ ...r, playing: false }));
+    setTool("navigate");
 
     const target: ZoomLayerTarget = {
       configId: layer.configId,
@@ -351,27 +424,30 @@ export function TwinWorkspace() {
       builtInKey: layer.builtInKey,
     };
 
-    if (layer.builtInKey === "tileset") {
-      const url = tilesetUrl.trim() || SAMPLE_TILESET_URL;
-      if (!tilesetUrl.trim()) {
-        pendingTilesetZoom.current = target;
-        setTilesetUrl(url);
-        setActiveScene("tiles");
-        setStatus("Loading sample tileset, then zooming…");
-        // Fallback if ready event never fires
-        window.setTimeout(() => {
-          if (pendingTilesetZoom.current === target) {
-            pendingTilesetZoom.current = null;
-            requestZoomToLayer(target);
-          }
-        }, 10_000);
-        return;
-      }
-      setActiveScene("tiles");
-      setStatus(`Focusing ${layer.label}…`);
+    if (layer.builtInKey === "tileset" || layer.category === "tiles-3d") {
+      const url =
+        layer.dataSource?.trim() ||
+        tilesetUrl.trim() ||
+        SAMPLE_TILESET_URL;
+      pendingTilesetZoom.current = target;
+      // Always remount so a prior failed load / CORS miss recovers on Focus
+      commitTilesetUrl(url);
+      setStatus(
+        tilesetUrl.trim()
+          ? `Reloading & focusing ${layer.label}…`
+          : "Loading sample tileset, then zooming…"
+      );
+      window.setTimeout(() => {
+        if (pendingTilesetZoom.current === target) {
+          pendingTilesetZoom.current = null;
+          requestZoomToLayer(target);
+        }
+      }, 12_000);
+      return;
     }
 
     requestZoomToLayer(target);
+    setStatus(`Focusing ${layer.label}…`);
   };
 
   useEffect(() => {
@@ -390,9 +466,12 @@ export function TwinWorkspace() {
       (l) => l.builtInKey === "tileset" || l.category === "tiles-3d"
     );
     if (tilesLayer?.dataSource) {
-      setTilesetUrl(tilesLayer.dataSource);
-      setActiveScene("tiles");
-      setStatus("Loading platform tileset…");
+      pendingTilesetZoom.current = {
+        configId: tilesLayer.configId,
+        key: tilesLayer.key,
+        builtInKey: tilesLayer.builtInKey,
+      };
+      commitTilesetUrl(tilesLayer.dataSource);
       layerCatalog.patchLayer(tilesLayer.configId, { visible: true });
     } else {
       setStatus("No platform tileset — upload one in Admin");
@@ -440,9 +519,23 @@ export function TwinWorkspace() {
     });
   };
 
+  const togglePatrol = useCallback(() => {
+    if (twin.walkthroughMode === "walk") {
+      // Exit robot simulation → free Orbit
+      twin.setWalkthroughMode("off");
+      setTool("navigate");
+      setRobot((r) => ({ ...r, playing: false }));
+      setStatus("Orbit — free camera");
+      return;
+    }
+    twin.setWalkthroughMode("walk");
+    setRobot((r) => ({ ...r, playing: false }));
+    setPanel("sim");
+    setStatus("Walk — WASD drive robot");
+  }, [twin]);
+
   const handleWalkthroughChange = useCallback(
     (mode: WalkthroughMode) => {
-      // Only Orbit + Walk — map legacy chase/cab to walk
       const next: WalkthroughMode =
         mode === "first" || mode === "third" ? "walk" : mode;
       twin.setWalkthroughMode(next);
@@ -451,21 +544,17 @@ export function TwinWorkspace() {
         setPanel("sim");
         return;
       }
+      // Orbit — leave place / sim drive
+      setTool("navigate");
+      setRobot((r) => ({ ...r, playing: false }));
+      setStatus("Orbit — free camera");
     },
     [twin]
   );
 
   const handleWalkActive = useCallback(() => {
-    // WASD is driving — ensure free-roam stays off
     setRobot((r) => (r.playing ? { ...r, playing: false } : r));
   }, []);
-
-  const togglePatrol = useCallback(() => {
-    // Free-roam removed — Walk (WASD) is the only robot drive mode
-    twin.setWalkthroughMode("walk");
-    setRobot((r) => ({ ...r, playing: false }));
-    setPanel("sim");
-  }, [twin]);
 
   const tools = useMemo(() => {
     const all = [
@@ -667,7 +756,10 @@ export function TwinWorkspace() {
             <Button
               size="sm"
               variant={timeOfDay === "day" ? "default" : "ghost"}
-              onClick={() => setTimeOfDay("day")}
+              onClick={() => {
+                setTodFollowWeather(false);
+                setTimeOfDay("day");
+              }}
               title="Day"
             >
               <Sun className="h-4 w-4" />
@@ -675,7 +767,10 @@ export function TwinWorkspace() {
             <Button
               size="sm"
               variant={timeOfDay === "night" ? "default" : "ghost"}
-              onClick={() => setTimeOfDay("night")}
+              onClick={() => {
+                setTodFollowWeather(false);
+                setTimeOfDay("night");
+              }}
               title="Night"
             >
               <Moon className="h-4 w-4" />
@@ -859,7 +954,7 @@ export function TwinWorkspace() {
                       >
                         <Play className="h-4 w-4" />
                         {twin.walkthroughMode === "walk"
-                          ? "Walking"
+                          ? "Exit walk"
                           : "Enter walk"}
                       </Button>
                       <Button
@@ -975,15 +1070,42 @@ export function TwinWorkspace() {
                     <label className="block text-xs text-slate-400">
                       tileset.json URL
                       <input
-                        value={tilesetUrl}
-                        onChange={(e) => {
-                          setTilesetUrl(e.target.value);
-                          setActiveScene(e.target.value.trim() ? "tiles" : "demo");
+                        value={tilesetDraft}
+                        onChange={(e) => setTilesetDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitTilesetUrl();
+                          }
                         }}
                         placeholder={SAMPLE_TILESET_URL}
                         className="mt-1.5 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 font-mono text-[11px] text-slate-100 outline-none ring-teal-400/40 placeholder:text-slate-600 focus:ring-2"
                       />
                     </label>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => commitTilesetUrl()}
+                      >
+                        Load tileset
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          setTilesetDraft("");
+                          commitTilesetUrl("");
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                    <p className="text-[10px] text-slate-500">
+                      Paste a public https://…/tileset.json then Load (Enter
+                      works). External hosts are fetched via a same-origin
+                      proxy when CORS is missing.
+                    </p>
                     <p className="text-[10px] text-slate-500">
                       {SANDCASTLE_PRESET_NOTE}
                     </p>
@@ -1014,12 +1136,37 @@ export function TwinWorkspace() {
                     <label className="block text-xs text-slate-400">
                       Vector / secondary 3D Tiles URL
                       <input
-                        value={vectorTilesUrl}
-                        onChange={(e) => setVectorTilesUrl(e.target.value)}
+                        value={vectorTilesDraft}
+                        onChange={(e) => setVectorTilesDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitVectorTilesUrl();
+                          }
+                        }}
                         placeholder="https://…/tileset.json (vector or mesh)"
                         className="mt-1.5 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 font-mono text-[11px] text-slate-100 outline-none ring-teal-400/40 placeholder:text-slate-600 focus:ring-2"
                       />
                     </label>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => commitVectorTilesUrl()}
+                      >
+                        Load secondary
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          setVectorTilesDraft("");
+                          commitVectorTilesUrl("");
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    </div>
                     <label className="block text-xs text-slate-400">
                       3D Tiles style
                       <select
@@ -1087,8 +1234,9 @@ export function TwinWorkspace() {
                   ) : (
                     <div className="space-y-2">
                       <p className="text-[11px] leading-relaxed text-slate-500">
-                        Toggle visibility or Focus to fly the camera. External
-                        tiles Focus loads the AGI HQ sample when none is set.
+                        Toggle visibility or Focus to fly the camera. Focus on
+                        External tiles reloads the tileset (sample AGI HQ when
+                        none is set), then zooms.
                       </p>
                       {layerCatalog.layers.map((layer) => (
                         <div
