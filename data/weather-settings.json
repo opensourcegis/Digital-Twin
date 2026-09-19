@@ -1,5 +1,5 @@
 {
-  "apiUrl": "https://api.open-meteo.com/v1/forecast?latitude=18.1795&longitude=79.476&hourly=temperature_2m,precipitation_probability,rain,visibility,wind_speed_10m,wind_direction_10m&current=temperature_2m,rain,is_day,wind_speed_10m",
+  "apiUrl": "https://api.open-meteo.com/v1/forecast?latitude=37.42205&longitude=-122.1339&hourly=temperature_2m,precipitation_probability,rain,visibility,wind_speed_10m,wind_direction_10m,cloud_cover,weather_code&current=temperature_2m,rain,is_day,wind_speed_10m,cloud_cover,weather_code",
   "followDayNight": true,
-  "updatedAt": "2026-09-19T00:00:00.000Z"
+  "updatedAt": "2026-09-19T10:40:00.000Z"
 }

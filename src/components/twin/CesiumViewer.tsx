@@ -55,7 +55,10 @@ import {
 import type { Alert, WalkthroughMode } from "@/lib/twin/types";
 import { TWIN_LOOK, buildingFinish } from "@/lib/twin/visual-theme";
 import type { SceneWeather } from "@/lib/weather/types";
-import { applyWeatherToScene } from "@/lib/weather/apply-weather";
+import {
+  applyTimeOfDay,
+  applyWeatherToScene,
+} from "@/lib/weather/apply-weather";
 import type { PlatformSettings } from "@/lib/platform/types";
 import { DEFAULT_GIS, DEFAULT_SIMULATION } from "@/lib/platform/types";
 import {
@@ -229,61 +232,6 @@ export function CesiumViewer({
     }
     drawLinePoints.current = [];
   }, []);
-
-  const applyTimeOfDay = useCallback(
-    (Cesium: CesiumNS, viewer: any, mode: TimeOfDay) => {
-      const scene = viewer.scene;
-      scene.globe.enableLighting = true;
-      scene.globe.dynamicAtmosphereLighting = true;
-      scene.globe.atmosphereLightIntensity = mode === "day" ? 10 : 3;
-
-      if (mode === "day") {
-        viewer.clock.currentTime = Cesium.JulianDate.fromDate(
-          new Date(Date.UTC(2024, 5, 21, 20, 0, 0))
-        );
-        viewer.clock.shouldAnimate = false;
-        scene.light = new Cesium.SunLight({ color: Cesium.Color.WHITE });
-        scene.globe.baseColor = Cesium.Color.fromCssColorString(
-          TWIN_LOOK.globe.dayBase
-        );
-        if (scene.skyAtmosphere) {
-          scene.skyAtmosphere.hueShift = -0.04;
-          scene.skyAtmosphere.saturationShift = -0.05;
-          scene.skyAtmosphere.brightnessShift = 0.02;
-        }
-        scene.fog.enabled = true;
-        scene.fog.density = 0.00018;
-        scene.backgroundColor = Cesium.Color.fromCssColorString(
-          TWIN_LOOK.globe.daySky
-        );
-      } else {
-        viewer.clock.currentTime = Cesium.JulianDate.fromDate(
-          new Date(Date.UTC(2024, 5, 21, 8, 30, 0))
-        );
-        viewer.clock.shouldAnimate = false;
-        scene.light = new Cesium.DirectionalLight({
-          direction: new Cesium.Cartesian3(0.2, 0.4, -0.85),
-          color: Cesium.Color.fromCssColorString("#9eb6d4"),
-          intensity: 0.4,
-        });
-        scene.globe.baseColor = Cesium.Color.fromCssColorString(
-          TWIN_LOOK.globe.nightBase
-        );
-        if (scene.skyAtmosphere) {
-          scene.skyAtmosphere.hueShift = -0.18;
-          scene.skyAtmosphere.saturationShift = -0.2;
-          scene.skyAtmosphere.brightnessShift = -0.4;
-        }
-        scene.fog.enabled = true;
-        scene.fog.density = 0.0004;
-        scene.backgroundColor = Cesium.Color.fromCssColorString(
-          TWIN_LOOK.globe.nightSky
-        );
-      }
-      scene.requestRender();
-    },
-    []
-  );
 
   const syncPoleEntity = useCallback(
     (Cesium: CesiumNS, viewer: any, pole: PlacedPole) => {
@@ -962,10 +910,9 @@ export function CesiumViewer({
     const Cesium = cesiumRef.current;
     const viewer = viewerRef.current;
     if (!Cesium || !viewer) return;
-    applyTimeOfDay(Cesium, viewer, timeOfDay);
-    applyWeatherToScene(Cesium, viewer, weather, timeOfDay);
+    applyWeatherToScene(Cesium, viewer, weather ?? null, timeOfDay);
     rebuildPoles();
-  }, [timeOfDay, weather, applyTimeOfDay, rebuildPoles]);
+  }, [timeOfDay, weather, rebuildPoles]);
 
   useEffect(() => {
     rebuildPoles();
@@ -1230,10 +1177,14 @@ export function CesiumViewer({
     }
 
     if (!robot.playing) {
+      // Restore render-on-demand when idle
+      viewer.scene.requestRenderMode = true;
       syncRobotPose(true);
       return;
     }
 
+    // Continuous renders while robot roams so motion stays smooth
+    viewer.scene.requestRenderMode = false;
     clearUserCameraControl();
     let last = performance.now();
     let lastEmit = 0;
@@ -1255,7 +1206,6 @@ export function CesiumViewer({
       syncRobotPose(true);
       if (now - lastEmit > 100) {
         lastEmit = now;
-        // Progress is a soft 0–1 cycle for telemetry UI (distance-based, not a route)
         onRobotProgressRef.current((traveled % 400) / 400);
       }
       animFrame.current = requestAnimationFrame(tick);
@@ -1265,6 +1215,9 @@ export function CesiumViewer({
     return () => {
       if (animFrame.current) cancelAnimationFrame(animFrame.current);
       animFrame.current = null;
+      if (viewerRef.current) {
+        viewerRef.current.scene.requestRenderMode = true;
+      }
     };
   }, [robot.playing, syncRobotPose]);
 
