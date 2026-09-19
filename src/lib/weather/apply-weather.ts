@@ -104,14 +104,6 @@ export function applyTimeOfDay(
   scene.requestRender();
 }
 
-function findTaggedPrimitive(scene: any, tag: string) {
-  for (let i = 0; i < scene.primitives.length; i++) {
-    const p = scene.primitives.get(i);
-    if (p && p[tag]) return p;
-  }
-  return null;
-}
-
 /**
  * Remove any twin weather CloudCollection primitives.
  * CesiumJS CloudCollection emits TRANSLUCENT DrawCommands without boundingVolume,
@@ -145,114 +137,25 @@ function syncWeatherClouds(
   removeWeatherClouds(viewer);
 }
 
-function makeWindParticleCanvas(): HTMLCanvasElement {
-  const c = document.createElement("canvas");
-  c.width = 16;
-  c.height = 4;
-  const ctx = c.getContext("2d")!;
-  const g = ctx.createLinearGradient(0, 0, 16, 0);
-  g.addColorStop(0, "rgba(220,235,255,0)");
-  g.addColorStop(0.4, "rgba(220,235,255,0.85)");
-  g.addColorStop(1, "rgba(220,235,255,0)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 16, 4);
-  return c;
-}
-
 /**
- * Cesium particle wind streaks over campus — emission scales with wind m/s.
+ * Wind streaks were a Cesium ParticleSystem. Disabled — particle / translucent
+ * draw commands have triggered boundingVolume.distanceSquaredTo crashes under
+ * continuous render (Walk / Click-to-move). Wind still affects fog & lighting.
  */
 function syncWindParticles(
-  Cesium: CesiumNS,
+  _Cesium: CesiumNS,
   viewer: any,
-  weather: SceneWeather | null
+  _weather: SceneWeather | null
 ) {
-  const scene = viewer.scene;
-  let system = findTaggedPrimitive(scene, WIND_TAG);
-
-  const wind = weatherWindFactor(weather);
-  if (!weather || wind < 0.08 || !Cesium.ParticleSystem) {
-    if (system) {
-      scene.primitives.remove(system);
-    }
-    return;
-  }
-
-  const lon = weather.longitude ?? -122.1339;
-  const lat = weather.latitude ?? 37.42205;
-  const fromDeg = weather.windDirectionDeg ?? 270;
-  const towardRad = ((fromDeg + 180) * Math.PI) / 180;
-  const speed = Math.max(0, weather.windSpeedMps ?? 0);
-
-  // Unit vector in ENU roughly for particle velocity
-  const east = Math.sin(towardRad);
-  const north = Math.cos(towardRad);
-  const mPerDegLat = 110540;
-  const mPerDegLon = 111320 * Math.cos((lat * Math.PI) / 180);
-
-  if (system) {
-    // Update in place when wind changes — avoid thrashing ParticleSystem
-    try {
-      system.emissionRate = 8 + speed * 6;
-      system.minimumSpeed = 4 + speed * 0.8;
-      system.maximumSpeed = 10 + speed * 1.6;
-      system.startScale = 1.2 + wind * 2;
-      system.endScale = 4 + wind * 6;
-      system.startColor = Cesium.Color.WHITE.withAlpha(0.55 * wind);
-      system.modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(
-        Cesium.Cartesian3.fromDegrees(lon, lat, 18)
-      );
-      system.__twinWindEast = east;
-      system.__twinWindNorth = north;
-      system.__twinWindSpeed = speed;
-      return;
-    } catch {
-      scene.primitives.remove(system);
-      system = null;
-    }
-  }
-
+  const scene = viewer?.scene;
+  if (!scene?.primitives) return;
   try {
-    const origin = Cesium.Cartesian3.fromDegrees(lon, lat, 18);
-    const modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(origin);
-    system = new Cesium.ParticleSystem({
-      image: makeWindParticleCanvas(),
-      startColor: Cesium.Color.WHITE.withAlpha(0.55 * wind),
-      endColor: Cesium.Color.WHITE.withAlpha(0),
-      startScale: 1.2 + wind * 2,
-      endScale: 4 + wind * 6,
-      minimumParticleLife: 1.2,
-      maximumParticleLife: 2.8,
-      minimumSpeed: 4 + speed * 0.8,
-      maximumSpeed: 10 + speed * 1.6,
-      emissionRate: 8 + speed * 6,
-      emitter: new Cesium.BoxEmitter(new Cesium.Cartesian3(120, 120, 40)),
-      modelMatrix,
-      emitterModelMatrix: Cesium.Matrix4.IDENTITY,
-      updateCallback: (p: any, dt: number) => {
-        const e = system.__twinWindEast ?? east;
-        const n = system.__twinWindNorth ?? north;
-        const s = system.__twinWindSpeed ?? speed;
-        const enu = new Cesium.Cartesian3(e * s * dt * 2.5, n * s * dt * 2.5, 0);
-        const world = Cesium.Matrix4.multiplyByPointAsVector(
-          system.modelMatrix,
-          enu,
-          new Cesium.Cartesian3()
-        );
-        Cesium.Cartesian3.add(p.position, world, p.position);
-      },
-      lifetime: Number.MAX_VALUE,
-      sizeInMeters: true,
-    });
-    system[WIND_TAG] = true;
-    system.__twinWindEast = east;
-    system.__twinWindNorth = north;
-    system.__twinWindSpeed = speed;
-    void mPerDegLat;
-    void mPerDegLon;
-    scene.primitives.add(system);
-  } catch (err) {
-    console.warn("Wind particles unavailable", err);
+    for (let i = scene.primitives.length - 1; i >= 0; i--) {
+      const p = scene.primitives.get(i);
+      if (p?.[WIND_TAG]) scene.primitives.remove(p);
+    }
+  } catch {
+    /* ignore */
   }
 }
 

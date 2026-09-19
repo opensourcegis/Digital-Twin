@@ -1,4 +1,4 @@
-import { snapToCampusRoads } from "@/lib/twin/campus-roads";
+import { constrainToCampusRoads } from "@/lib/twin/campus-roads";
 import {
   offsetPoseEnu,
   sampleSurfaceHeightEnu,
@@ -277,8 +277,17 @@ export function attachKeyboardWalk(
 
     if (forward || back || left || right) {
       onActive?.();
+      // A/D turn the robot in place
       if (left) pose.heading -= TURN_RATE_RAD * dt;
       if (right) pose.heading += TURN_RATE_RAD * dt;
+
+      // Third-person: W/S drive along the camera view — absorb orbit yaw into heading
+      // so “forward” matches where the chase cam is looking (not a fixed world axis).
+      if ((forward || back) && Math.abs(yawOffset) > 1e-3) {
+        pose.heading += yawOffset;
+        yawOffset = 0;
+      }
+
       while (pose.heading > Math.PI) pose.heading -= Math.PI * 2;
       while (pose.heading < -Math.PI) pose.heading += Math.PI * 2;
 
@@ -303,9 +312,10 @@ export function attachKeyboardWalk(
         if (surface === "campus") {
           lon = clamp(lon, CAMPUS_WALK_BOUNDS.minLon, CAMPUS_WALK_BOUNDS.maxLon);
           lat = clamp(lat, CAMPUS_WALK_BOUNDS.minLat, CAMPUS_WALK_BOUNDS.maxLat);
-          const snapped = snapToCampusRoads(lon, lat);
-          lon = snapped.lon;
-          lat = snapped.lat;
+          // Soft corridor — preserves heading-relative W/S (hard snap forced one road axis)
+          const kept = constrainToCampusRoads(lon, lat, 10);
+          lon = kept.lon;
+          lat = kept.lat;
         }
         const height = sampleSurfaceHeightEnu(
           Cesium,
