@@ -51,14 +51,33 @@ export function pickSurfaceCartesian(
     push(viewer.scene.pickPosition(windowPosition));
   }
 
-  // Only use globe if no tileset is loaded — globe under a tileset is wrong datum
-  if (!tileset) {
-    try {
-      const ray = viewer.camera.getPickRay(windowPosition);
-      if (ray) push(viewer.scene.globe.pick(ray, viewer.scene));
-    } catch {
-      /* ignore */
+  // Only use globe if no tileset — unless we need a fallback hit inside the tileset BV
+  try {
+    const ray = viewer.camera.getPickRay(windowPosition);
+    if (ray) {
+      const globeHit = viewer.scene.globe.pick(ray, viewer.scene);
+      if (!tileset) {
+        push(globeHit);
+      } else if (globeHit && bs) {
+        // Fallback when mesh depth pick fails but ray still hits near the tileset
+        const dBs = Cesium.Cartesian3.distance(globeHit, bs.center);
+        if (dBs <= Math.max(bs.radius, 1) * 1.5) push(globeHit);
+      }
     }
+  } catch {
+    /* ignore */
+  }
+
+  // drillPick — collect several depth hits (tileset + overlays)
+  try {
+    if (viewer.scene.drillPick && viewer.scene.pickPositionSupported) {
+      const drilled = viewer.scene.drillPick(windowPosition, 8);
+      if (Array.isArray(drilled) && drilled.length) {
+        push(viewer.scene.pickPosition(windowPosition));
+      }
+    }
+  } catch {
+    /* ignore */
   }
 
   const camCarto = Cesium.Cartographic.fromCartesian(camPos, ellipsoid);
