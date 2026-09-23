@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Moon,
+  Radio,
   Sun,
   Ruler,
   Pentagon,
@@ -54,10 +55,10 @@ import { TimeSlider } from "@/components/twin/TimeSlider";
 import { AssetDetailDrawer } from "@/components/twin/AssetDetailDrawer";
 import type {
   ActiveTool,
+  LightingMode,
   MeasureResult,
   PlacedPole,
   RobotState,
-  TimeOfDay,
   TwinConfig,
 } from "@/lib/types";
 import type { WalkthroughMode } from "@/lib/twin/types";
@@ -67,6 +68,8 @@ import {
   weatherWindFactor,
   weatherWindCssAngle,
 } from "@/lib/weather/apply-weather";
+import { CAMPUS_WEATHER_LAT, CAMPUS_WEATHER_LON } from "@/lib/weather/types";
+import { solarElevationDeg } from "@/lib/twin/scene-lighting";
 import type { PlatformSettings } from "@/lib/platform/types";
 import {
   DEFAULT_GIS,
@@ -117,9 +120,8 @@ export function TwinWorkspace() {
   });
   const [tool, setTool] = useState<ActiveTool>("navigate");
   const layerCatalog = useLayerCatalog({ pollMs: 30_000 });
-  const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>("day");
-  /** When true, weather isDay may override the day/night toggle */
-  const [todFollowWeather, setTodFollowWeather] = useState(true);
+  const [lightingMode, setLightingMode] = useState<LightingMode>("live");
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const [poles, setPoles] = useState<PlacedPole[]>([]);
   const [poleHistory, setPoleHistory] = useState<PlacedPole[][]>([]);
   const [poleLightsOn, setPoleLightsOn] = useState(true);
@@ -165,16 +167,36 @@ export function TwinWorkspace() {
   const defaultPanelApplied = useRef(false);
   const walkthroughDefaultApplied = useRef(false);
 
+  const liveDefaultApplied = useRef(false);
   useEffect(() => {
-    if (!todFollowWeather) return;
-    if (!liveWeather.followDayNight) return;
-    if (liveWeather.weather?.isDay == null) return;
-    setTimeOfDay(liveWeather.weather.isDay ? "day" : "night");
-  }, [
-    todFollowWeather,
-    liveWeather.followDayNight,
-    liveWeather.weather?.isDay,
-  ]);
+    if (liveDefaultApplied.current || liveWeather.loading) return;
+    liveDefaultApplied.current = true;
+    if (!liveWeather.followDayNight) setLightingMode("day");
+  }, [liveWeather.loading, liveWeather.followDayNight]);
+
+  useEffect(() => {
+    if (lightingMode !== "live") return;
+    const id = window.setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, [lightingMode]);
+
+  const lightInstantMs =
+    lightingMode !== "live"
+      ? null
+      : !twin.isLive && twin.simulationTime != null
+        ? twin.simulationTime
+        : nowTick;
+
+  const timeOfDay = useMemo(() => {
+    if (lightingMode === "day") return "day" as const;
+    if (lightingMode === "night") return "night" as const;
+    const el = solarElevationDeg(
+      new Date(lightInstantMs ?? Date.now()),
+      CAMPUS_WEATHER_LAT,
+      CAMPUS_WEATHER_LON
+    );
+    return el >= -0.6 ? ("day" as const) : ("night" as const);
+  }, [lightingMode, lightInstantMs]);
 
   const handleRobotProgress = useCallback((progress: number) => {
     setRobot((r) => (r.progress === progress ? r : { ...r, progress }));
@@ -632,7 +654,16 @@ export function TwinWorkspace() {
 
   const footerText = shell.footerTemplate
     .replace("{status}", status)
-    .replace("{tod}", timeOfDay === "day" ? "Day" : "Night")
+    .replace(
+      "{tod}",
+      lightingMode === "live"
+        ? timeOfDay === "day"
+          ? "Live day"
+          : "Live night"
+        : timeOfDay === "day"
+          ? "Day"
+          : "Night"
+    )
     .replace(
       "{temp}",
       liveWeather.weather?.temperatureC != null
@@ -689,6 +720,8 @@ export function TwinWorkspace() {
         tool={tool}
         layers={layerCatalog.layers}
         timeOfDay={timeOfDay}
+        lightingMode={lightingMode}
+        lightInstantMs={lightInstantMs}
         weather={liveWeather.weather}
         platformSettings={platform}
         poles={poles}
@@ -769,25 +802,35 @@ export function TwinWorkspace() {
             <>
             <Button
               size="sm"
-              variant={timeOfDay === "day" ? "default" : "ghost"}
-              onClick={() => {
-                setTodFollowWeather(false);
-                setTimeOfDay("day");
-              }}
-              title="Day"
+              variant={lightingMode === "day" ? "default" : "ghost"}
+              onClick={() => setLightingMode("day")}
+              title="Day — sunlight on the mesh and poles"
             >
               <Sun className="h-4 w-4" />
             </Button>
             <Button
               size="sm"
-              variant={timeOfDay === "night" ? "default" : "ghost"}
-              onClick={() => {
-                setTodFollowWeather(false);
-                setTimeOfDay("night");
-              }}
-              title="Night"
+              variant={lightingMode === "night" ? "default" : "ghost"}
+              onClick={() => setLightingMode("night")}
+              title="Night — moonlight, pole lights, and dark mesh"
             >
               <Moon className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant={lightingMode === "live" ? "default" : "ghost"}
+              onClick={() => {
+                setNowTick(Date.now());
+                setLightingMode("live");
+              }}
+              title="Live — current sun, moon, and weather"
+            >
+              <Radio
+                className={cn(
+                  "h-4 w-4",
+                  lightingMode === "live" && "animate-pulse"
+                )}
+              />
             </Button>
             </>
             )}
@@ -897,7 +940,13 @@ export function TwinWorkspace() {
                       <TimeSlider
                         isLive={twin.isLive}
                         simulationTime={twin.simulationTime}
-                        onChange={twin.setSimulationTime}
+                        onChange={(t) => {
+                          void twin.setSimulationTime(t);
+                          if (t === null) {
+                            setNowTick(Date.now());
+                            setLightingMode("live");
+                          }
+                        }}
                       />
                       <p className="mt-2 text-[10px] text-slate-500">
                         Weather refreshes every{" "}

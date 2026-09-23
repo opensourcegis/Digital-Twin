@@ -70,9 +70,9 @@ export function WeatherAdminPanel() {
         <div className="min-w-0 flex-1">
           <h2 className="font-display text-lg text-white">Live weather API</h2>
           <p className="mt-1 text-xs leading-relaxed text-slate-400">
-            Open-Meteo (or compatible) forecast URL drives fog, haze, rain overlay,
-            cloud cover lighting, and wind simulation scaled by wind speed.
-            and optional day/night on the twin simulation view.
+            Open-Meteo (or compatible) forecast URL drives Live lighting: sun and
+            moon position, cloud cover, fog, and wind. Day and Night in the viewer
+            stay clear previews until Live is selected.
           </p>
         </div>
       </div>
@@ -100,7 +100,7 @@ export function WeatherAdminPanel() {
               onChange={(e) => setFollowDayNight(e.target.checked)}
               className="h-4 w-4 accent-sky-400"
             />
-            Follow live <code className="text-sky-300">is_day</code> for Day/Night
+            Open the twin in Live lighting (sun, moon, and current weather)
           </label>
 
           <div className="flex flex-wrap gap-2">

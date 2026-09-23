@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import type {
   ActiveTool,
+  LightingMode,
   MeasureResult,
   PlacedPole,
   RobotState,
@@ -32,6 +33,8 @@ import {
   applyDrapeToEntities,
   applyTilesetTimeOfDay,
   attachTilesetErrorHandlers,
+  updateTilesetLampUniforms,
+  type MeshLamp,
   clearClippingPolygons,
   createIonSnapper,
   loadTilesetFromUrl,
@@ -73,6 +76,7 @@ import {
   type RobotPose,
 } from "@/lib/twin/robot-sim";
 import {
+  poleLampCartographic,
   removePoleLight,
   startPoleLightFlickerLoop,
   syncNaturalPoleLight,
@@ -86,8 +90,9 @@ import {
 } from "@/lib/twin/campus-lighting";
 import { TWIN_LOOK, buildingLook } from "@/lib/twin/visual-theme";
 import type { SceneWeather } from "@/lib/weather/types";
+import { CAMPUS_WEATHER_LAT, CAMPUS_WEATHER_LON } from "@/lib/weather/types";
+import type { LightRecipe } from "@/lib/twin/scene-lighting";
 import {
-  applyTimeOfDay,
   applyWeatherToScene,
   removeWeatherClouds,
 } from "@/lib/weather/apply-weather";
@@ -108,6 +113,9 @@ interface ViewerProps {
   tool: ActiveTool;
   layers: ViewerLayer[];
   timeOfDay: TimeOfDay;
+  lightingMode?: LightingMode;
+  /** Epoch ms for Live lighting. Null uses the current time. */
+  lightInstantMs?: number | null;
   weather?: SceneWeather | null;
   platformSettings?: PlatformSettings | null;
   poles: PlacedPole[];
@@ -184,6 +192,8 @@ export function CesiumViewer({
   tool,
   layers,
   timeOfDay,
+  lightingMode = "live",
+  lightInstantMs = null,
   weather = null,
   platformSettings = null,
   poles,
@@ -229,12 +239,14 @@ export function CesiumViewer({
   const poleEntities = useRef<Map<string, any>>(new Map());
   const poleLightCaches = useRef<PoleLightCaches>({
     poles: new Map(),
+    shafts: new Map(),
     bases: new Map(),
     arms: new Map(),
     housings: new Map(),
     bulbs: new Map(),
     glows: new Map(),
     beams: new Map(),
+    washes: new Map(),
   });
   const campusLightExtras = useRef<CampusLightExtras>(emptyCampusLightExtras());
   const robotHandle = useRef<AtlasRobotHandle | null>(null);
@@ -247,7 +259,11 @@ export function CesiumViewer({
   const toolRef = useRef(tool);
   const poleLightsRef = useRef(poleLightsOn);
   const timeOfDayRef = useRef(timeOfDay);
+  const lightingModeRef = useRef(lightingMode);
+  const lightInstantMsRef = useRef(lightInstantMs);
   const weatherRef = useRef(weather);
+  const lightRecipeRef = useRef<LightRecipe | null>(null);
+  const meshLampsRef = useRef<MeshLamp[]>([]);
   const platformSettingsRef = useRef(platformSettings);
   const onPolesChangeRef = useRef(onPolesChange);
   const onMeasureRef = useRef(onMeasure);
@@ -281,6 +297,8 @@ export function CesiumViewer({
   clipInverseRef.current = clipInverse;
   drapeModeRef.current = drapeMode;
   timeOfDayRef.current = timeOfDay;
+  lightingModeRef.current = lightingMode;
+  lightInstantMsRef.current = lightInstantMs;
   weatherRef.current = weather;
   platformSettingsRef.current = platformSettings;
   onPolesChangeRef.current = onPolesChange;
@@ -312,13 +330,15 @@ export function CesiumViewer({
 
   const syncPoleEntity = useCallback(
     (Cesium: CesiumNS, viewer: any, pole: PlacedPole) => {
+      const poleLayer = layersRef.current.find((l) => l.builtInKey === "poles");
       syncNaturalPoleLight(
         Cesium,
         viewer,
         pole,
         timeOfDayRef.current,
         poleLightsRef.current,
-        poleLightCaches.current
+        poleLightCaches.current,
+        poleLayer ? poleLayer.visible : true
       );
     },
     []
@@ -345,6 +365,64 @@ export function CesiumViewer({
     }
     viewer.scene.requestRender();
   }, [syncPoleEntity]);
+
+  const pushSceneLightingRef = useRef<(cesium: CesiumNS, viewer: any) => void>(
+    () => {}
+  );
+  pushSceneLightingRef.current = (Cesium, viewer) => {
+    const recipe = applyWeatherToScene(
+      Cesium,
+      viewer,
+      weatherRef.current,
+      timeOfDayRef.current,
+      CAMPUS_WEATHER_LON,
+      {
+        lightingMode: lightingModeRef.current,
+        siteLat: CAMPUS_WEATHER_LAT,
+        instant:
+          lightInstantMsRef.current != null
+            ? new Date(lightInstantMsRef.current)
+            : new Date(),
+      }
+    );
+    lightRecipeRef.current = recipe;
+    const lamps: MeshLamp[] = [];
+    if (recipe.lampStrength > 0 && recipe.polesLit && poleLightsRef.current) {
+      const cam = viewer.camera?.positionWC;
+      const ranked = polesRef.current
+        .filter((p) => p.lightsOn !== false)
+        .map((p) => {
+          const c = poleLampCartographic(p);
+          const position = Cesium.Cartesian3.fromDegrees(
+            c.lon,
+            c.lat,
+            c.height
+          );
+          const distance = cam
+            ? Cesium.Cartesian3.distance(position, cam)
+            : 0;
+          return { position, intensity: recipe.lampStrength, distance };
+        })
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 8);
+      for (const lamp of ranked) {
+        lamps.push({ position: lamp.position, intensity: lamp.intensity });
+      }
+    }
+    meshLampsRef.current = lamps;
+    for (const tileset of [tilesetRef.current, vectorTilesetRef.current]) {
+      if (!tileset) continue;
+      applyTilesetTimeOfDay(
+        Cesium,
+        tileset,
+        recipe.timeOfDay,
+        tilesetStylePreset,
+        weatherRef.current,
+        recipe
+      );
+      updateTilesetLampUniforms(Cesium, tileset, viewer, lamps);
+    }
+  };
 
   useEffect(() => {
     let destroyed = false;
@@ -645,7 +723,7 @@ export function CesiumViewer({
         canvas.tabIndex = 0;
       }
 
-      applyTimeOfDay(Cesium, viewer, timeOfDayRef.current, weatherRef.current, CAMPUS.lon);
+      pushSceneLightingRef.current(Cesium, viewer);
       const home =
         platformSettingsRef.current?.simulation.cameraHome ??
         DEFAULT_SIMULATION.cameraHome;
@@ -1344,6 +1422,28 @@ export function CesiumViewer({
         viewer,
         () => poleLightsRef.current && timeOfDayRef.current === "night"
       );
+      const onPreRender = () => {
+        const CesiumNow = cesiumRef.current;
+        const liveViewer = viewerRef.current;
+        if (!CesiumNow || !liveViewer) return;
+        const lamps = meshLampsRef.current;
+        if (!lamps.length) return;
+        for (const tileset of [tilesetRef.current, vectorTilesetRef.current]) {
+          if (tileset) {
+            updateTilesetLampUniforms(CesiumNow, tileset, liveViewer, lamps);
+          }
+        }
+      };
+      viewer.scene.preRender.addEventListener(onPreRender);
+      const prevCleanupLights = stopFlickerRef.current;
+      stopFlickerRef.current = () => {
+        prevCleanupLights?.();
+        try {
+          viewer.scene.preRender.removeEventListener(onPreRender);
+        } catch {
+          /* viewer already destroyed */
+        }
+      };
       onStatusRef.current("Twin ready");
       viewer.scene.requestRender();
     }
@@ -1382,27 +1482,7 @@ export function CesiumViewer({
     const Cesium = cesiumRef.current;
     const viewer = viewerRef.current;
     if (!Cesium || !viewer) return;
-    applyWeatherToScene(
-      Cesium,
-      viewer,
-      weather ?? null,
-      timeOfDay,
-      CAMPUS.lon
-    );
-    applyTilesetTimeOfDay(
-      Cesium,
-      tilesetRef.current,
-      timeOfDay,
-      tilesetStylePreset,
-      weather
-    );
-    applyTilesetTimeOfDay(
-      Cesium,
-      vectorTilesetRef.current,
-      timeOfDay,
-      tilesetStylePreset,
-      weather
-    );
+    pushSceneLightingRef.current(Cesium, viewer);
     applyBuildingSymbology(
       Cesium,
       layerEntities.current.buildings ?? [],
@@ -1417,16 +1497,18 @@ export function CesiumViewer({
       campusLightExtras.current
     );
     viewer.scene.requestRender();
-    // Wind particles disabled — don't force continuous render for weather alone
     windActiveRef.current = false;
     if (robotPlayingRef.current) {
       viewer.scene.requestRenderMode = false;
     }
     rebuildPoles();
-  }, [timeOfDay, weather, rebuildPoles, tilesetStylePreset]);
+  }, [timeOfDay, weather, lightingMode, lightInstantMs, rebuildPoles, tilesetStylePreset]);
 
   useEffect(() => {
     rebuildPoles();
+    const Cesium = cesiumRef.current;
+    const viewer = viewerRef.current;
+    if (Cesium && viewer) pushSceneLightingRef.current(Cesium, viewer);
   }, [poles, poleLightsOn, rebuildPoles]);
 
   useEffect(() => {
@@ -1547,6 +1629,7 @@ export function CesiumViewer({
           const lit = show && poleOn && night;
           for (const map of [
             caches.poles,
+            caches.shafts,
             caches.bases,
             caches.arms,
             caches.housings,
@@ -1556,9 +1639,11 @@ export function CesiumViewer({
             if (ent) ent.show = show;
           }
           const glow = caches.glows.get(id);
-          if (glow) glow.show = show && poleOn;
+          if (glow) glow.show = lit;
           const beam = caches.beams.get(id);
           if (beam) beam.show = lit;
+          const wash = caches.washes?.get(id);
+          if (wash) wash.show = lit;
         }
         needsRender = true;
       }
@@ -1715,13 +1800,7 @@ export function CesiumViewer({
           if (tilesetStylePreset !== "default") {
             applyCesium3DTileStyle(Cesium, tileset, tilesetStylePreset);
           }
-          applyTilesetTimeOfDay(
-            Cesium,
-            tileset,
-            timeOfDayRef.current,
-            tilesetStylePreset,
-            weatherRef.current
-          );
+          pushSceneLightingRef.current(Cesium, viewer);
           pauseWalkChase(20_000);
           markUserCameraControl(viewer);
           onStatusRef.current(
@@ -1931,6 +2010,7 @@ export function CesiumViewer({
           return;
         }
         vectorTilesetRef.current = tileset;
+        pushSceneLightingRef.current(Cesium, viewer);
         pauseWalkChase(12_000);
         markUserCameraControl(viewer);
         try {
@@ -1976,36 +2056,10 @@ export function CesiumViewer({
   // Style presets for mesh + vector tilesets
   useEffect(() => {
     const Cesium = cesiumRef.current;
-    if (!Cesium || !readyRef.current) return;
+    const viewer = viewerRef.current;
+    if (!Cesium || !viewer || !readyRef.current) return;
     try {
-      if (tilesetRef.current) {
-        if (tilesetStylePreset !== "default") {
-          applyCesium3DTileStyle(Cesium, tilesetRef.current, tilesetStylePreset);
-        }
-        applyTilesetTimeOfDay(
-          Cesium,
-          tilesetRef.current,
-          timeOfDayRef.current,
-          tilesetStylePreset,
-          weatherRef.current
-        );
-      }
-      if (vectorTilesetRef.current) {
-        if (tilesetStylePreset !== "default") {
-          applyCesium3DTileStyle(
-            Cesium,
-            vectorTilesetRef.current,
-            tilesetStylePreset
-          );
-        }
-        applyTilesetTimeOfDay(
-          Cesium,
-          vectorTilesetRef.current,
-          timeOfDayRef.current,
-          tilesetStylePreset,
-          weatherRef.current
-        );
-      }
+      pushSceneLightingRef.current(Cesium, viewer);
     } catch (err) {
       reportTwinError({
         source: "3D Tiles style",

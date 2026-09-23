@@ -25,6 +25,9 @@ export type LayerId =
 
 export type TimeOfDay = "day" | "night";
 
+/** Day and night are fixed previews. Live follows the clock, sun, moon, and weather. */
+export type LightingMode = "day" | "night" | "live";
+
 export interface LayerState {
   id: LayerId;
   label: string;

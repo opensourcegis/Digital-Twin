@@ -77,9 +77,149 @@ export function applyCesium3DTileStyle(
   }
 }
 
+const LAMP_SLOTS = 8;
+
+export interface MeshLamp {
+  /** ECEF position of the lamp head. */
+  position: any;
+  intensity: number;
+}
+
+/** Subset of the scene recipe that mesh shading needs. */
+export interface MeshLightState {
+  albedoGain: number;
+  sunGlint: number;
+  moonGlint: number;
+  nightFill: number;
+  roughnessScale: number;
+  iblDiffuse: number;
+  iblSpecular: number;
+  envBrightness: number;
+  envSaturation: number;
+  envScatter: number;
+  envGroundCss: string;
+  timeOfDay: "day" | "night";
+}
+
+const LAMP_SHADER = `
+vec3 twinLamp(vec3 posEC, vec3 n, vec3 v, vec3 lampEC, float intensity) {
+  if (intensity < 0.001) return vec3(0.0);
+  vec3 toLamp = lampEC - posEC;
+  float dist = length(toLamp);
+  if (dist < 0.2 || dist > 56.0) return vec3(0.0);
+  vec3 l = toLamp / dist;
+  float ndl = max(dot(n, l), 0.0);
+  vec3 h = normalize(l + v);
+  float spec = pow(max(dot(n, h), 0.0), 22.0);
+  float atten = intensity / (1.0 + dist * dist * 0.016);
+  return vec3(1.0, 0.74, 0.4) * atten * (ndl * 0.92 + spec * 0.7);
+}
+
+void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+  vec3 n = fsInput.attributes.normalEC;
+  float nlen = length(n);
+  if (nlen > 0.05) {
+    n /= nlen;
+  } else {
+    n = vec3(0.0, 0.0, 1.0);
+  }
+  vec3 v = normalize(-fsInput.attributes.positionEC);
+  vec3 posEC = fsInput.attributes.positionEC;
+  material.diffuse *= u_albedoGain;
+
+  float sunSpec = 0.0;
+  float moonSpec = 0.0;
+  if (u_sunGlint > 0.001) {
+    vec3 l = normalize(czm_sunDirectionEC);
+    float ndl = max(dot(n, l), 0.0);
+    vec3 h = normalize(l + v);
+    sunSpec = ndl * pow(max(dot(n, h), 0.0), 30.0);
+  }
+  if (u_moonGlint > 0.001) {
+    vec3 l = normalize(czm_moonDirectionEC);
+    float ndl = max(dot(n, l), 0.0);
+    vec3 h = normalize(l + v);
+    moonSpec = ndl * pow(max(dot(n, h), 0.0), 22.0);
+  }
+  material.emissive += material.diffuse * (
+    vec3(1.0, 0.93, 0.78) * sunSpec * u_sunGlint +
+    vec3(0.7, 0.8, 1.0) * moonSpec * u_moonGlint
+  );
+  material.emissive += material.diffuse * vec3(0.55, 0.64, 0.82) * u_nightFill;
+
+  vec3 accum = vec3(0.0);
+  accum += twinLamp(posEC, n, v, u_lamp0, u_li0);
+  accum += twinLamp(posEC, n, v, u_lamp1, u_li1);
+  accum += twinLamp(posEC, n, v, u_lamp2, u_li2);
+  accum += twinLamp(posEC, n, v, u_lamp3, u_li3);
+  accum += twinLamp(posEC, n, v, u_lamp4, u_li4);
+  accum += twinLamp(posEC, n, v, u_lamp5, u_li5);
+  accum += twinLamp(posEC, n, v, u_lamp6, u_li6);
+  accum += twinLamp(posEC, n, v, u_lamp7, u_li7);
+  material.emissive += accum;
+  material.roughness = clamp(material.roughness * u_rough, 0.045, 1.0);
+}
+`;
+
+function lampUniforms(Cesium: CesiumNS): Record<string, unknown> {
+  const uniforms: Record<string, unknown> = {
+    u_albedoGain: { type: Cesium.UniformType.FLOAT, value: 1 },
+    u_sunGlint: { type: Cesium.UniformType.FLOAT, value: 0 },
+    u_moonGlint: { type: Cesium.UniformType.FLOAT, value: 0 },
+    u_nightFill: { type: Cesium.UniformType.FLOAT, value: 0 },
+    u_rough: { type: Cesium.UniformType.FLOAT, value: 1 },
+  };
+  const zero = new Cesium.Cartesian3();
+  for (let i = 0; i < LAMP_SLOTS; i++) {
+    uniforms[`u_lamp${i}`] = {
+      type: Cesium.UniformType.VEC3,
+      value: zero,
+    };
+    uniforms[`u_li${i}`] = { type: Cesium.UniformType.FLOAT, value: 0 };
+  }
+  return uniforms;
+}
+
+function ensureMeshShader(Cesium: CesiumNS, tileset: any) {
+  if (tileset.__twinLightShader) return tileset.__twinLightShader;
+  if (!Cesium.CustomShader || !Cesium.UniformType) return null;
+  try {
+    const shader = new Cesium.CustomShader({
+      lightingModel: Cesium.LightingModel?.PBR,
+      uniforms: lampUniforms(Cesium),
+      fragmentShaderText: LAMP_SHADER,
+    });
+    tileset.__twinLightShader = shader;
+    tileset.customShader = shader;
+    return shader;
+  } catch (err) {
+    console.warn("Mesh light shader failed", err);
+    return null;
+  }
+}
+
+function fallbackMeshState(mode: "day" | "night"): MeshLightState {
+  const day = mode === "day";
+  return {
+    albedoGain: day ? 1 : 0.4,
+    sunGlint: day ? 0.46 : 0,
+    moonGlint: day ? 0 : 0.4,
+    nightFill: day ? 0 : 0.035,
+    roughnessScale: 1,
+    iblDiffuse: day ? 0.82 : 0.2,
+    iblSpecular: day ? 1.28 : 0.82,
+    envBrightness: day ? 1.05 : 0.16,
+    envSaturation: day ? 1.08 : 0.38,
+    envScatter: day ? 2.15 : 0.42,
+    envGroundCss: day ? "#4d6a52" : "#141820",
+    timeOfDay: mode,
+  };
+}
+
 /**
- * Day/night for mesh 3D Tiles via scene light, not albedo crush.
- * Day: native textures. Night: moonlight on the mesh (keep textures).
+ * Light a 3D Tiles mesh from the scene sun or moon, plus nearby pole lamps.
+ * `tileset.lightColor` is cleared so the directional scene light is used
+ * instead of a flat color multiply.
  */
 export function applyTilesetTimeOfDay(
   Cesium: CesiumNS,
@@ -90,15 +230,12 @@ export function applyTilesetTimeOfDay(
     cloudCoverPct?: number | null;
     rainMm?: number | null;
     precipProbabilityPct?: number | null;
-  } | null
+  } | null,
+  lighting?: MeshLightState | null
 ) {
   if (!tileset) return;
+  const state = lighting ?? fallbackMeshState(mode);
 
-  try {
-    tileset.customShader = undefined;
-  } catch {
-    /* ignore */
-  }
   try {
     tileset.style = undefined;
   } catch {
@@ -106,41 +243,98 @@ export function applyTilesetTimeOfDay(
   }
   if (stylePreset !== "default") {
     applyCesium3DTileStyle(Cesium, tileset, stylePreset);
+  } else if ("colorBlendAmount" in tileset) {
+    try {
+      tileset.colorBlendAmount = 0;
+    } catch {
+      /* ignore */
+    }
   }
 
-  const day = mode === "day";
+  try {
+    if ("lightColor" in tileset) tileset.lightColor = undefined;
+  } catch {
+    /* ignore */
+  }
+
   try {
     if (tileset.imageBasedLighting) {
-      tileset.imageBasedLighting.imageBasedLightingFactor = day
-        ? new Cesium.Cartesian2(1.0, 1.0)
-        : new Cesium.Cartesian2(0.22, 0.12);
+      tileset.imageBasedLighting.imageBasedLightingFactor = new Cesium.Cartesian2(
+        state.iblDiffuse,
+        state.iblSpecular
+      );
     }
   } catch {
     /* ignore */
   }
-  try {
-    if ("luminanceAtZenith" in tileset) {
-      tileset.luminanceAtZenith = day ? 0.5 : 0.08;
+
+  const env = tileset.environmentMapManager;
+  if (env) {
+    try {
+      env.enabled = true;
+      env.maximumSecondsDifference = 90;
+      env.brightness = state.envBrightness;
+      env.saturation = state.envSaturation;
+      env.atmosphereScatteringIntensity = state.envScatter;
+      if (Cesium.Color?.fromCssColorString) {
+        env.groundColor = Cesium.Color.fromCssColorString(state.envGroundCss);
+      }
+      env.groundAlbedo = state.timeOfDay === "night" ? 0.07 : 0.28;
+      const sig = `${state.timeOfDay}|${state.envBrightness.toFixed(2)}|${state.iblDiffuse.toFixed(2)}`;
+      if (tileset.__twinEnvSig !== sig) {
+        tileset.__twinEnvSig = sig;
+        env.reset?.();
+      }
+    } catch {
+      /* environment maps are optional */
     }
-  } catch {
-    /* ignore */
   }
+
+  ensureMeshShader(Cesium, tileset);
+  const shader = tileset.__twinLightShader;
+  if (!shader?.setUniform) return;
   try {
-    if ("lightColor" in tileset) {
-      tileset.lightColor = day
-        ? new Cesium.Cartesian3(1.6, 1.55, 1.45)
-        : new Cesium.Cartesian3(0.45, 0.52, 0.78);
-    }
-  } catch {
-    /* ignore */
+    shader.setUniform("u_albedoGain", state.albedoGain);
+    shader.setUniform("u_sunGlint", state.sunGlint);
+    shader.setUniform("u_moonGlint", state.moonGlint);
+    shader.setUniform("u_nightFill", state.nightFill);
+    shader.setUniform("u_rough", state.roughnessScale);
+  } catch (err) {
+    console.warn("Mesh light uniforms failed", err);
   }
-  try {
-    if (Cesium.Cesium3DTileColorBlendMode) {
-      tileset.colorBlendMode = Cesium.Cesium3DTileColorBlendMode.HIGHLIGHT;
-      if ("colorBlendAmount" in tileset) tileset.colorBlendAmount = 0.5;
+}
+
+const lampScratch: any[] = [];
+
+/** Move lamp uniforms into eye space so highlights stay on the mesh as the camera moves. */
+export function updateTilesetLampUniforms(
+  Cesium: CesiumNS,
+  tileset: any,
+  viewer: any,
+  lamps: MeshLamp[]
+) {
+  const shader = tileset?.__twinLightShader;
+  if (!shader?.setUniform || !viewer?.camera) return;
+  const view = viewer.camera.viewMatrix;
+  for (let i = 0; i < LAMP_SLOTS; i++) {
+    const lamp = lamps[i];
+    if (!lamp || !(lamp.intensity > 0) || !lamp.position) {
+      try {
+        shader.setUniform(`u_li${i}`, 0);
+      } catch {
+        return;
+      }
+      continue;
     }
-  } catch {
-    /* ignore */
+    const ec =
+      lampScratch[i] ?? (lampScratch[i] = new Cesium.Cartesian3());
+    Cesium.Matrix4.multiplyByPoint(view, lamp.position, ec);
+    try {
+      shader.setUniform(`u_lamp${i}`, ec);
+      shader.setUniform(`u_li${i}`, lamp.intensity);
+    } catch {
+      return;
+    }
   }
 }
 
